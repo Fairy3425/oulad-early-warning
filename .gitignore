@@ -1,0 +1,27 @@
+# Data & local databases (NEVER commit large datasets)
+data/
+*.duckdb
+*.duckdb.wal
+
+# Experiment tracking & model artifacts
+mlflow.db
+mlruns/
+mlartifacts/
+artifacts/
+
+# Python virtual environments & caches
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Secrets & environment variables
+.env
+.env.*
+!.env.example
+
+# OS / IDE noise
+.DS_Store
+Thumbs.db

@@ -1,0 +1,55 @@
+{
+  "generated_at_utc": "2026-11-25T07:32:00.853130+00:00",
+  "dataset": "OULAD (UCI ID 349, CC BY 4.0)",
+  "row_counts": {
+    "courses": 22,
+    "assessments": 206,
+    "vle": 6364,
+    "studentInfo": 32593,
+    "studentRegistration": 32593,
+    "studentAssessment": 173912,
+    "studentVle": 10655280
+  },
+  "quality_checks": {
+    "duplicate_student_info_keys": 0,
+    "invalid_final_result": 0,
+    "orphan_student_vle_sites": 0,
+    "orphan_student_assessments": 0,
+    "invalid_assessment_scores": 0,
+    "non_positive_sum_click": 0,
+    "vle_date_after_course_end": 0,
+    "imd_band_missing_ge_5pct": 0,
+    "unregistration_before_registration": 0
+  },
+  "registration_and_missing_stats": {
+    "student_info_total_rows": 32593,
+    "imd_band_missing_count": 1111,
+    "imd_band_missing_pct": 3.4087,
+    "date_registration_null_count": 45,
+    "date_registration_ge_14": 59,
+    "date_registration_ge_21": 26,
+    "date_registration_ge_28": 18
+  },
+  "returning_vs_new_students": {
+    "2014B": {
+      "unique_students_total": 7333,
+      "unique_students_returning": 940,
+      "unique_students_new": 6393,
+      "unique_returning_pct": 12.82,
+      "enrollments_total": 7804,
+      "enrollments_returning": 963,
+      "enrollments_new": 6841,
+      "enrollments_returning_pct": 12.34
+    },
+    "2014J": {
+      "unique_students_total": 10670,
+      "unique_students_returning": 972,
+      "unique_students_new": 9698,
+      "unique_returning_pct": 9.11,
+      "enrollments_total": 11260,
+      "enrollments_returning": 999,
+      "enrollments_new": 10261,
+      "enrollments_returning_pct": 8.87
+    }
+  }
+}
