@@ -151,3 +151,60 @@ def synthetic_db() -> Iterator[duckdb.DuckDBPyConnection]:
         yield con
     finally:
         con.close()
+
+
+@pytest.fixture
+def leakage_db() -> Iterator[duckdb.DuckDBPyConnection]:
+    """Provide a synthetic DB enriched with exact cutoff boundary & early/banked edge cases."""
+    con = duckdb.connect(":memory:")
+    populate_clean_synthetic_db(con)
+    con.execute("""
+        -- Add edge-case students in 2014B/2014J:
+        -- 10: late registrant (reg=16, unreg=NULL) -> excluded from Op T=14 & Common, in Op T=21/28
+        -- 11: early dropout (reg=-5, unreg=20) -> in Op T=14, excluded from Op T=21/28 & Common
+        -- 12: NULL date_registration -> always excluded
+        -- 13: zero-click student (reg=-10, unreg=NULL) -> tests has_any_vle_click=0 & NULL days
+        INSERT INTO studentInfo VALUES
+            ('AAA', '2014B', 10, 'M', 'London Region', 'HE Qualification',
+             '50-60%', '0-35', 0, 60, 'N', 'Pass'),
+            ('AAA', '2014B', 11, 'F', 'Wales', 'A Level or Equivalent',
+             '20-30%', '0-35', 0, 60, 'N', 'Withdrawn'),
+            ('AAA', '2014B', 12, 'M', 'Scotland', 'A Level or Equivalent',
+             '30-40%', '35-55', 0, 60, 'N', 'Fail'),
+            ('AAA', '2014J', 13, 'F', 'North Region', 'HE Qualification',
+             '70-80%', '0-35', 0, 60, 'N', 'Fail');
+
+        INSERT INTO studentRegistration VALUES
+            ('AAA', '2014B', 10, 16, NULL),
+            ('AAA', '2014B', 11, -5, 20),
+            ('AAA', '2014B', 12, NULL, NULL),
+            ('AAA', '2014J', 13, -10, NULL);
+
+        -- Exact boundary & future VLE events at date = 14, 21, 28, 35
+        INSERT INTO studentVle VALUES
+            ('AAA', '2013B', 1, 1, 14, 99),
+            ('AAA', '2013B', 1, 2, 21, 88),
+            ('AAA', '2013B', 1, 1, 28, 77),
+            ('AAA', '2013B', 1, 1, 35, 66),
+            ('AAA', '2014B', 1, 5, 14, 50),
+            ('AAA', '2014B', 1, 5, 21, 40),
+            ('AAA', '2014B', 1, 5, 28, 30),
+            ('AAA', '2014B', 11, 5, 10, 6);
+
+        -- Early submission (due=35, submitted=12) + banked (is_banked=1, submitted=-1)
+        -- + exact boundary future submissions at 14, 21, 28
+        INSERT INTO assessments VALUES
+            ('AAA', '2014B', 303, 'TMA', 35, 30.0),
+            ('AAA', '2014B', 304, 'TMA', 12, 10.0);
+
+        INSERT INTO studentAssessment VALUES
+            (303, 1, 12, 0, 88.0),
+            (304, 1, -1, 1, 75.0),
+            (302, 1, 14, 0, 60.0),
+            (302, 1, 21, 0, 65.0),
+            (302, 1, 28, 0, 70.0);
+    """)
+    try:
+        yield con
+    finally:
+        con.close()

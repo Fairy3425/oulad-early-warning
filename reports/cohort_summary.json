@@ -1,0 +1,92 @@
+[
+  {
+    "mode": "operational",
+    "cutoff": 14,
+    "n_rows": 28062,
+    "n_features": 35,
+    "positive_rate": 0.4526,
+    "top_activities": [
+      "forumng",
+      "homepage",
+      "oucontent",
+      "subpage",
+      "quiz"
+    ],
+    "path": "features_op_c14.parquet"
+  },
+  {
+    "mode": "common",
+    "cutoff": 14,
+    "n_rows": 27491,
+    "n_features": 35,
+    "positive_rate": 0.4413,
+    "top_activities": [
+      "forumng",
+      "homepage",
+      "oucontent",
+      "subpage",
+      "quiz"
+    ],
+    "path": "features_common_c14.parquet"
+  },
+  {
+    "mode": "operational",
+    "cutoff": 21,
+    "n_rows": 27880,
+    "n_features": 36,
+    "positive_rate": 0.4486,
+    "top_activities": [
+      "forumng",
+      "homepage",
+      "oucontent",
+      "subpage",
+      "quiz"
+    ],
+    "path": "features_op_c21.parquet"
+  },
+  {
+    "mode": "common",
+    "cutoff": 21,
+    "n_rows": 27491,
+    "n_features": 36,
+    "positive_rate": 0.4413,
+    "top_activities": [
+      "forumng",
+      "homepage",
+      "oucontent",
+      "subpage",
+      "quiz"
+    ],
+    "path": "features_common_c21.parquet"
+  },
+  {
+    "mode": "operational",
+    "cutoff": 28,
+    "n_rows": 27528,
+    "n_features": 37,
+    "positive_rate": 0.4414,
+    "top_activities": [
+      "forumng",
+      "homepage",
+      "oucontent",
+      "subpage",
+      "quiz"
+    ],
+    "path": "features_op_c28.parquet"
+  },
+  {
+    "mode": "common",
+    "cutoff": 28,
+    "n_rows": 27491,
+    "n_features": 37,
+    "positive_rate": 0.4413,
+    "top_activities": [
+      "forumng",
+      "homepage",
+      "oucontent",
+      "subpage",
+      "quiz"
+    ],
+    "path": "features_common_c28.parquet"
+  }
+]
