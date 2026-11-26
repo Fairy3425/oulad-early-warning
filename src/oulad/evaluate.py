@@ -226,7 +226,8 @@ def select_best_calibrator_oof(
 
     skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
     folds = list(skf.split(X_val_calib, y_arr))
-    assert len(folds) == n_splits, f"Expected {n_splits} calibration folds, got {len(folds)}"
+    if len(folds) != n_splits:
+        raise RuntimeError(f"Expected {n_splits} calibration folds, got {len(folds)}")
     min_fold_train = int(min(len(fit_idx) for fit_idx, _ in folds))
 
     # Hard AUD-08 / FA-02 guard against isotonic overfitting on small calibration sets
@@ -252,16 +253,18 @@ def select_best_calibrator_oof(
         oof_probs = np.zeros(n_calib, dtype=np.float64)
         oof_counts = np.zeros(n_calib, dtype=np.int64)
         for fit_idx, eval_idx in folds:
-            assert set(fit_idx).isdisjoint(set(eval_idx)), (
-                "OOF violation: calibration fit and eval folds overlap."
-            )
+            if not set(fit_idx).isdisjoint(set(eval_idx)):
+                raise RuntimeError(
+                    "OOF violation: calibration fit and eval folds overlap."
+                )
             cal = CalibratedClassifierCV(estimator=FrozenEstimator(base_model), method=method)
             cal.fit(X_val_calib.iloc[fit_idx], y_arr[fit_idx])
             oof_probs[eval_idx] = cal.predict_proba(X_val_calib.iloc[eval_idx])[:, 1]
             oof_counts[eval_idx] += 1
-        assert np.all(oof_counts == 1), (
-            "OOF violation: each val_calib sample must receive exactly one OOF probability."
-        )
+        if not np.all(oof_counts == 1):
+            raise RuntimeError(
+                "OOF violation: each val_calib sample must receive exactly one OOF probability."
+            )
         oof_by_method[method] = oof_probs
         candidate_metrics[method] = {
             "brier_score": round(float(brier_score_loss(y_arr, oof_probs)), 5),
@@ -698,32 +701,30 @@ def log_mlflow_core_runs(
     }
 
 
-def run_p1_b5_locked_evaluation_suite(
+def fit_and_lock_phase_a_champion(
     processed_dir: Path = PROCESSED_DIR,
-    reports_dir: Path = REPORTS_DIR,
-    figures_dir: Path = FIGURES_DIR,
     artifacts_dir: Path = ARTIFACTS_DIR,
-    cutoffs: Sequence[int] = CUTOFFS,
     seed: int = SEED,
-    enable_mlflow: bool = True,
 ) -> dict[str, Any]:
-    """Execute Phase A (OOF calibration & lock on val_calib) then SINGLE unlock of 2014J.
+    """Execute Phase A strictly on 2013 + 2014B and persist artifacts/champion_locked.joblib.
 
-    Strictly forbids any model selection, calibration fitting, or threshold tuning on 2014J.
+    NEVER reads, inspects, or evaluates locked test 2014J (safe for fresh-clone demo prep and
+    reproducible runs with --skip-locked-test).
     """
-    reports_dir.mkdir(parents=True, exist_ok=True)
-    figures_dir.mkdir(parents=True, exist_ok=True)
     artifacts_dir.mkdir(parents=True, exist_ok=True)
 
-    # =========================================================================
-    # PHASE A — TRAIN, SELECT, CALIBRATE & LOCK STRICTLY ON 2013 + 2014B ONLY
-    # =========================================================================
     df_t28 = load_feature_parquet(PRIMARY_CUTOFF, mode="operational", processed_dir=processed_dir)
     split_t28: SplitData = presentation_forward_split(df_t28, seed=seed)
     split_t28.assert_invariants()
-    assert TEST_PRESENTATION not in set(split_t28.train["code_presentation"])
-    assert TEST_PRESENTATION not in set(split_t28.val_select["code_presentation"])
-    assert TEST_PRESENTATION not in set(split_t28.val_calib["code_presentation"])
+    for split_name, frame in (
+        ("train", split_t28.train),
+        ("val_select", split_t28.val_select),
+        ("val_calib", split_t28.val_calib),
+    ):
+        if TEST_PRESENTATION in set(frame["code_presentation"]):
+            raise RuntimeError(
+                f"Locked test contamination: {TEST_PRESENTATION} found in {split_name}."
+            )
 
     X_tr, y_tr = split_feature_target(split_t28.train)
     X_vs, y_vs = split_feature_target(split_t28.val_select)
@@ -770,6 +771,78 @@ def run_p1_b5_locked_evaluation_suite(
     champion_cal = oof_cal_results[champion_name]
     champion_tau = thresh_results[champion_name].threshold
 
+    # Persist locked champion bundle (gitignored) for CLI demo (predict --sample)
+    champion_bundle_path = artifacts_dir / "champion_locked.joblib"
+    joblib.dump(
+        {
+            "champion_name": champion_name,
+            "base_model": primary_estimators[champion_name],
+            "calibrator": champion_cal.final_calibrator,
+            "calibration_method": champion_cal.chosen_method,
+            "threshold": champion_tau,
+            "feature_columns": list(X_tr.columns),
+            "cutoff": PRIMARY_CUTOFF,
+            "cohort_mode": "operational",
+        },
+        champion_bundle_path,
+    )
+
+    return {
+        "split_t28": split_t28,
+        "X_tr": X_tr,
+        "y_tr": y_tr,
+        "X_vs": X_vs,
+        "y_vs": y_vs,
+        "X_vc": X_vc,
+        "y_vc": y_vc,
+        "primary_estimators": primary_estimators,
+        "val_select_pr": val_select_pr,
+        "champion_name": champion_name,
+        "oof_cal_results": oof_cal_results,
+        "thresh_results": thresh_results,
+        "champion_cal": champion_cal,
+        "champion_tau": champion_tau,
+        "champion_bundle_path": champion_bundle_path,
+    }
+
+
+def run_p1_b5_locked_evaluation_suite(
+    processed_dir: Path = PROCESSED_DIR,
+    reports_dir: Path = REPORTS_DIR,
+    figures_dir: Path = FIGURES_DIR,
+    artifacts_dir: Path = ARTIFACTS_DIR,
+    cutoffs: Sequence[int] = CUTOFFS,
+    seed: int = SEED,
+    enable_mlflow: bool = True,
+) -> dict[str, Any]:
+    """Execute Phase A (OOF calibration & lock on val_calib) then SINGLE unlock of 2014J.
+
+    Strictly forbids any model selection, calibration fitting, or threshold tuning on 2014J.
+    """
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    figures_dir.mkdir(parents=True, exist_ok=True)
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+
+    # =========================================================================
+    # PHASE A — TRAIN, SELECT, CALIBRATE & LOCK STRICTLY ON 2013 + 2014B ONLY
+    # =========================================================================
+    phase_a = fit_and_lock_phase_a_champion(
+        processed_dir=processed_dir,
+        artifacts_dir=artifacts_dir,
+        seed=seed,
+    )
+    split_t28: SplitData = phase_a["split_t28"]
+    X_tr, y_tr = phase_a["X_tr"], phase_a["y_tr"]
+    X_vs, y_vs = phase_a["X_vs"], phase_a["y_vs"]
+    y_vc = phase_a["y_vc"]
+    primary_estimators = phase_a["primary_estimators"]
+    val_select_pr = phase_a["val_select_pr"]
+    champion_name = phase_a["champion_name"]
+    oof_cal_results = phase_a["oof_cal_results"]
+    thresh_results = phase_a["thresh_results"]
+    champion_cal = phase_a["champion_cal"]
+    champion_tau = phase_a["champion_tau"]
+
     # 3. Train & lock all 12 cutoff models (operational & common x 14/21/28) BEFORE unlocking 2014J
     locked_cutoff_bundles: list[dict[str, Any]] = []
     for mode in ("operational", "common"):
@@ -802,22 +875,6 @@ def run_p1_b5_locked_evaluation_suite(
 
     locked_ablation_lgbm = _fit_dropped_lgbm(SENSITIVE_DEMOGRAPHIC_COLS)
     locked_score_free_lgbm = _fit_dropped_lgbm(SCORE_COLS)
-
-    # Persist locked champion bundle (gitignored) for P1-B6 CLI demo (predict --sample)
-    champion_bundle_path = artifacts_dir / "champion_locked.joblib"
-    joblib.dump(
-        {
-            "champion_name": champion_name,
-            "base_model": primary_estimators[champion_name],
-            "calibrator": champion_cal.final_calibrator,
-            "calibration_method": champion_cal.chosen_method,
-            "threshold": champion_tau,
-            "feature_columns": list(X_tr.columns),
-            "cutoff": PRIMARY_CUTOFF,
-            "cohort_mode": "operational",
-        },
-        champion_bundle_path,
-    )
 
     # =========================================================================
     # PHASE B — SINGLE FINAL UNLOCK OF LOCKED TEST 2014J (READ-ONLY EVALUATION)

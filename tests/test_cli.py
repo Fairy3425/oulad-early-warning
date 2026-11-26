@@ -99,7 +99,10 @@ def test_run_all_dry_run_and_synthetic_stage12_isolated(
     assert exit_code == 0
     plan = json.loads(capsys.readouterr().out)
     assert plan["dry_run"] is True
-    assert len(plan["stages"]) == 5
+    assert plan["skip_locked_test"] is True
+    assert plan["include_locked_test"] is False
+    assert "4b_phase_a_oof_calibration_and_champion_lock" in plan["stages"]
+    assert "5_locked_test_2014j_evaluation" not in plan["stages"]
     assert not (tmp_path / "test.duckdb").exists()
 
     # Execute isolated Stage 1-2 on synthetic CSVs in tmp_path (never touches real data/ or 2014J)
@@ -113,3 +116,29 @@ def test_run_all_dry_run_and_synthetic_stage12_isolated(
     assert (tmp_path / "reports" / "cohort_summary.json").is_file()
     assert len(out["cohort_summary"]) == 6
     assert all(v == 0 for v in out["data_quality"]["quality_checks"].values())
+
+
+def test_predict_missing_bundle_in_clean_workspace_gives_safe_instructions(
+    tmp_path: Path,
+) -> None:
+    """AUD-B6-03: Missing gitignored artifact must raise clear error pointing to safe command."""
+    missing_bundle = tmp_path / "artifacts" / "champion_locked.joblib"
+    with pytest.raises(FileNotFoundError) as exc_info:
+        predict_main(["--sample", "--bundle", str(missing_bundle)])
+    msg = str(exc_info.value)
+    assert "--skip-locked-test" in msg
+    assert "without re-running locked test 2014J" in msg
+
+
+def test_run_all_rejects_conflicting_locked_test_flags(tmp_path: Path) -> None:
+    """AUD-B6-02: Conflicting --skip-locked-test and --include-locked-test must fail loudly."""
+    with pytest.raises(ValueError, match="Conflicting flags"):
+        run_all_main(
+            [
+                "--skip-download",
+                "--skip-locked-test",
+                "--include-locked-test",
+                "--raw-dir",
+                str(tmp_path),
+            ]
+        )

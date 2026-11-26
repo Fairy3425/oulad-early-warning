@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
+import pytest
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.linear_model import LogisticRegression
 
@@ -225,12 +226,36 @@ def test_oof_calibration_5fold_disjoint_single_prediction_and_final_refit() -> N
         assert len(fit_calls) == 5
 
 
-def test_phase_a_calibration_and_threshold_isolated_from_2014j_mutation(
-    synthetic_feature_table: pd.DataFrame,
-) -> None:
+def _build_balanced_phase_a_frame(seed: int = SEED) -> pd.DataFrame:
+    """Build balanced synthetic presentations so 5-fold StratifiedKFold on val_calib is clean."""
+    rng = np.random.default_rng(seed)
+    rows: list[dict[str, object]] = []
+    # 80 train (2013B+2013J), 100 balanced 2014B (-> 40 val_calib: 20 pos / 20 neg), 40 2014J
+    specs = [("2013B", 40, 1), ("2013J", 40, 101), ("2014B", 100, 201), ("2014J", 40, 1001)]
+    for pres, n_rows, start_id in specs:
+        for i in range(n_rows):
+            target = i % 2  # Exact 50/50 class balance per presentation
+            clicks = float(rng.integers(5, 40) if target == 1 else rng.integers(50, 140))
+            score = float(rng.uniform(25.0, 55.0) if target == 1 else rng.uniform(65.0, 95.0))
+            rows.append(
+                {
+                    "code_module": "AAA" if i % 2 == 0 else "BBB",
+                    "code_presentation": pres,
+                    "id_student": start_id + i,
+                    "gender": "M" if i % 2 == 0 else "F",
+                    "clicks_total": clicks,
+                    "mean_score": score,
+                    "submission_rate_due": 0.2 if target == 1 else 0.9,
+                    "target": target,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def test_phase_a_calibration_and_threshold_isolated_from_2014j_mutation() -> None:
     """Audit: Mutating 2014J features & labels must have ZERO impact on Phase A calibration/tau*."""
-    df_orig = synthetic_feature_table.copy()
-    df_mut = synthetic_feature_table.copy()
+    df_orig = _build_balanced_phase_a_frame(seed=SEED)
+    df_mut = df_orig.copy()
     mask_2014j = df_mut["code_presentation"] == TEST_PRESENTATION
     df_mut.loc[mask_2014j, "clicks_total"] = 999999.0
     df_mut.loc[mask_2014j, "mean_score"] = 0.0
@@ -261,6 +286,62 @@ def test_phase_a_calibration_and_threshold_isolated_from_2014j_mutation(
     np.testing.assert_allclose(cal_a.oof_probs_winner, cal_b.oof_probs_winner, rtol=0, atol=0)
     assert th_a.threshold == th_b.threshold
     assert th_a.fallback_used == th_b.fallback_used
+
+
+def _make_fake_skf_cls(bad_folds: list[tuple[np.ndarray, np.ndarray]]):
+    """Create a stub StratifiedKFold class yielding bad_folds for outer OOF guard tests."""
+
+    class _FakeSKF:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        def split(self, X: object, y: object):
+            return iter(bad_folds)
+
+    return _FakeSKF
+
+
+def test_oof_runtime_error_on_wrong_fold_count() -> None:
+    """AUD-B6-01: Must raise RuntimeError (survives python -O) if fold count != n_splits."""
+    model, X_cal, y_cal = _fit_simple_binary_model(n_rows=100, seed=SEED)
+    bad_folds = [
+        (np.arange(0, 75), np.arange(75, 100)),
+        (np.arange(25, 100), np.arange(0, 25)),
+    ]
+    with patch("oulad.evaluate.StratifiedKFold", _make_fake_skf_cls(bad_folds)):
+        with pytest.raises(RuntimeError, match="Expected 5 calibration folds"):
+            select_best_calibrator_oof(model, X_cal, y_cal, n_splits=5, seed=SEED)
+
+
+def test_oof_runtime_error_on_overlapping_fit_eval_folds() -> None:
+    """AUD-B6-01: Must raise RuntimeError (survives python -O) if fit & eval indices overlap."""
+    model, X_cal, y_cal = _fit_simple_binary_model(n_rows=100, seed=SEED)
+    bad_folds = [
+        (np.arange(0, 85), np.arange(80, 100)),  # 80..84 overlap!
+        (np.arange(20, 100), np.arange(0, 20)),
+        (np.concatenate([np.arange(0, 20), np.arange(40, 100)]), np.arange(20, 40)),
+        (np.concatenate([np.arange(0, 40), np.arange(60, 100)]), np.arange(40, 60)),
+        (np.concatenate([np.arange(0, 60), np.arange(80, 100)]), np.arange(60, 80)),
+    ]
+    with patch("oulad.evaluate.StratifiedKFold", _make_fake_skf_cls(bad_folds)):
+        with pytest.raises(RuntimeError, match="overlap"):
+            select_best_calibrator_oof(model, X_cal, y_cal, n_splits=5, seed=SEED)
+
+
+def test_oof_runtime_error_on_missing_or_duplicate_oof_prediction() -> None:
+    """AUD-B6-01: Must raise RuntimeError (survives python -O) if any row != 1 OOF prediction."""
+    model, X_cal, y_cal = _fit_simple_binary_model(n_rows=100, seed=SEED)
+    # Disjoint per fold, but index 0..19 predicted twice and 80..99 never predicted
+    bad_folds = [
+        (np.arange(20, 100), np.arange(0, 20)),
+        (np.arange(20, 100), np.arange(0, 20)),
+        (np.concatenate([np.arange(0, 20), np.arange(40, 100)]), np.arange(20, 40)),
+        (np.concatenate([np.arange(0, 40), np.arange(60, 100)]), np.arange(40, 60)),
+        (np.concatenate([np.arange(0, 60), np.arange(80, 100)]), np.arange(60, 80)),
+    ]
+    with patch("oulad.evaluate.StratifiedKFold", _make_fake_skf_cls(bad_folds)):
+        with pytest.raises(RuntimeError, match="exactly one OOF probability"):
+            select_best_calibrator_oof(model, X_cal, y_cal, n_splits=5, seed=SEED)
 
 
 def test_illustrative_cost_benefit_uses_cost_ratio_tau_and_non_bayes_disclaimer() -> None:

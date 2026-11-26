@@ -206,7 +206,8 @@ def train_lightgbm(
     model.fit(
         X_tr_prep,
         y_train,
-        eval_set=[(X_va_prep, y_val)],
+        eval_X=X_va_prep,
+        eval_y=y_val,
         eval_metric="binary_logloss",
         callbacks=[lgb.early_stopping(stopping_rounds=stopping_rounds, verbose=False)],
     )

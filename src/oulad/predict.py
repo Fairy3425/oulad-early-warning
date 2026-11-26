@@ -182,7 +182,8 @@ def predict_from_bundle(
     if not bundle_path.is_file():
         raise FileNotFoundError(
             f"Locked champion bundle not found at {bundle_path}. "
-            "Run `python -m oulad.run_all --skip-download` first to generate it."
+            "Run `python -m oulad.run_all --skip-download --skip-locked-test` first to build it "
+            "safely on 2013 + 2014B without re-running locked test 2014J."
         )
 
     bundle: dict[str, Any] = joblib.load(bundle_path)
@@ -294,7 +295,8 @@ def main(argv: list[str] | None = None) -> int:
     if not args.bundle.is_file():
         raise FileNotFoundError(
             f"Locked champion bundle not found at {args.bundle}. "
-            "Run `python -m oulad.run_all --skip-download` first."
+            "Run `python -m oulad.run_all --skip-download --skip-locked-test` first to build it "
+            "safely on 2013 + 2014B without re-running locked test 2014J."
         )
     bundle_meta: dict[str, Any] = joblib.load(args.bundle)
     X_sample = build_illustrative_sample_profiles(list(bundle_meta["feature_columns"]))

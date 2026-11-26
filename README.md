@@ -60,17 +60,29 @@ pip install --no-deps --no-build-isolation -e .
 ```
 *(Platform lockfiles: `requirements-cpu.lock` pins CPU-only PyTorch wheels with 0 CUDA / 0 `@ file://` entries for CI; `requirements-local.lock` captures the local Windows workstation environment.)*
 
-### Reproducible Pipeline & Sample Prediction Demo
+### Fresh-Clone Demo Workflow (Safe Default — Does NOT Re-Unlock `2014J`)
+Model binaries (`artifacts/champion_locked.joblib`) and raw OULAD CSVs (`data/raw/`) are intentionally **gitignored** to keep the repository lightweight and compliant with dataset redistribution practices. After cloning the repository:
+
 ```bash
 # 1. Place the 7 OULAD CSV files (UCI ID 349, CC BY 4.0) into data/raw/
-# 2. Dry-run verification of inputs and 5 pipeline stages (does not modify reports/):
+# 2. Optional dry-run to inspect input files and pipeline stages (writes nothing):
 python -m oulad.run_all --skip-download --dry-run
 
-# 3. Full end-to-end reproduction (seed=42):
-python -m oulad.run_all --skip-download
+# 3. Build DuckDB, 6 Parquets, validation models & artifacts/champion_locked.joblib
+#    strictly on 2013 + 2014B (does NOT evaluate 2014J or overwrite locked test reports):
+python -m oulad.run_all --skip-download --skip-locked-test
 
 # 4. Run the locked-champion CLI demo with non-causal Top-5 SHAP drivers:
 python -m oulad.predict --sample
+```
+
+*(Note: Running `python -m oulad.predict --sample` on a fresh clone before Step 3 raises a clear `FileNotFoundError` pointing to the safe Step 3 command above. To run Step 3 without overwriting committed `reports/`, pass `--reports-dir <tmp_dir> --figures-dir <tmp_dir>`.)*
+
+### Full Historical Reproduction Workflow (Explicit Opt-In for `2014J`)
+To prevent accidental re-execution of the locked test set (`FA-02`), Stage 5 (`2014J` evaluation) is **disabled by default** in `run_all.py` and requires an explicit opt-in flag (recommended into an isolated output directory to preserve historical `reports/`):
+
+```bash
+python -m oulad.run_all --skip-download --include-locked-test --reports-dir ./tmp_repro/reports --figures-dir ./tmp_repro/figures
 ```
 
 ## 7. How to Test
@@ -87,8 +99,8 @@ Test suites cover:
 - `tests/test_leakage.py` (26 tests): parameterized `[14, 21, 28]` × `{operational, common}` future-event invariance, post-outcome invariance, registration/week bounds, `submission_rate_due ∈ [0, 1]`, train-only top activities.
 - `tests/test_split_and_baselines.py` (6 tests): forward split invariants, `subsample_freq=1`, unseen categories, `2014J` mutation isolation.
 - `tests/test_models.py` (4 tests): PyTorch `TabularMLP` `Unknown/Missing -> 0`, raw logits, gradient step, checkpoint roundtrip & `2014J` isolation.
-- `tests/test_metrics.py` (10 tests): `n_calib < 1000` isotonic guard, `FrozenEstimator` 5-fold disjoint OOF audit & final refit, `2014J` calibration/threshold isolation, `max_f1` fallback, `AUD-B5-01` cost-ratio disclaimer, `min(20, len)` FP/FN, Fairness `low_sample_warning`.
-- `tests/test_cli.py` (2 tests): `predict --sample` SHAP contract & isolated `run_all` dry-run / Stage 1–2 execution.
+- `tests/test_metrics.py` (13 tests): `n_calib < 1000` isotonic guard, `FrozenEstimator` 5-fold disjoint OOF audit & final refit, `RuntimeError` integrity guards (survive `python -O`), `2014J` calibration/threshold isolation, `max_f1` fallback, `AUD-B5-01` cost-ratio disclaimer, `min(20, len)` FP/FN, Fairness `low_sample_warning`.
+- `tests/test_cli.py` (4 tests): `predict --sample` SHAP contract, missing-bundle clean-workspace error check, safe default `run_all` (`2014J` skipped), conflicting-flag rejection, and isolated Stage 1–2 execution.
 
 ## 8. Verified Empirical Results (100% Traceable to `reports/`)
 

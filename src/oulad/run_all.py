@@ -1,20 +1,26 @@
 """Reproducible end-to-end pipeline entrypoint for OULAD Early Warning (P1-B6).
 
+Safe-by-default design (AUD-B6-02 & AUD-B6-03):
+- By default (`--skip-download` or `--skip-download --skip-locked-test`), runs Stages 1-4 plus
+  Phase A champion locking (`artifacts/champion_locked.joblib`) strictly on 2013 + 2014B,
+  WITHOUT calling `run_p1_b5_locked_evaluation_suite` or touching locked test `2014J`.
+- Re-running Stage 5 (`2014J` locked test evaluation) requires explicit opt-in via
+  `--include-locked-test` to prevent accidental overwrites of frozen historical reports.
+
 Usage:
-    python -m oulad.run_all --skip-download
-    python -m oulad.run_all --skip-download --dry-run
+    # Safe fresh-clone workflow (rebuilds DB, Parquets, Val models & champion_locked.joblib):
     python -m oulad.run_all --skip-download --skip-locked-test
 
-Stages:
-    1. DuckDB load (nullstr='?') + 9 SQL quality checks + Returning/New audit -> data_quality.json
-    2. Start-of-Day Operational & Safe Common feature Parquets (14/21/28) -> cohort_summary.json
-    3. Classical baselines (LogReg, LightGBM), 12 cutoff models, SHAP & sensitivity -> metrics_val
-    4. PyTorch TabularMLP (Unknown=0, unweighted BCE) -> tabular_mlp_best.pt & learning_curve.png
-    5. Explicit 5-fold OOF calibration, threshold lock & single 2014J unlock -> metrics_test_locked
+    # Dry-run input & stage validation:
+    python -m oulad.run_all --skip-download --dry-run
+
+    # Explicit opt-in full historical reproduction (includes 2014J):
+    python -m oulad.run_all --skip-download --include-locked-test
 """
 
 import argparse
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -37,7 +43,10 @@ from oulad.db import (
     load_raw_tables,
     run_quality_checks,
 )
-from oulad.evaluate import run_p1_b5_locked_evaluation_suite
+from oulad.evaluate import (
+    fit_and_lock_phase_a_champion,
+    run_p1_b5_locked_evaluation_suite,
+)
 from oulad.features import export_all_feature_parquets
 from oulad.train_torch import ARTIFACTS_DIR, run_p1_b4_torch_suite
 
@@ -90,7 +99,8 @@ def run_stage_db_and_features(
 def run_pipeline(
     *,
     skip_download: bool = False,
-    skip_locked_test: bool = False,
+    skip_locked_test: bool = True,
+    include_locked_test: bool = False,
     dry_run: bool = False,
     disable_mlflow: bool = False,
     prefer_cuda: bool = False,
@@ -102,44 +112,65 @@ def run_pipeline(
     figures_dir: Path = FIGURES_DIR,
     artifacts_dir: Path = ARTIFACTS_DIR,
 ) -> dict[str, Any]:
-    """Orchestrate the full reproducible OULAD Early Warning pipeline."""
+    """Orchestrate the reproducible OULAD Early Warning pipeline (safe-by-default)."""
+    run_locked_2014j = bool(include_locked_test and not skip_locked_test)
+
     missing_csvs = verify_raw_csvs_present(raw_dir)
     if missing_csvs:
         hint = (
             "Download OULAD CSV files (UCI ID 349, CC BY 4.0) into "
-            f"{raw_dir} and re-run with --skip-download."
+            f"{raw_dir} and re-run with --skip-download --skip-locked-test."
         )
         raise FileNotFoundError(
             f"Missing raw OULAD CSV file(s): {', '.join(missing_csvs)}. {hint}"
         )
 
+    stages = [
+        "1_db_load_and_quality_checks",
+        "2_feature_engineering_operational_and_common_14_21_28",
+        "3_baselines_logreg_lgbm_shap_and_sensitivity_val_select",
+        "4_pytorch_tabular_mlp_val_select",
+        "4b_phase_a_oof_calibration_and_champion_lock",
+    ]
+    if run_locked_2014j:
+        stages.append("5_locked_test_2014j_evaluation")
+
     plan = {
         "dry_run": dry_run,
         "skip_download": skip_download,
-        "skip_locked_test": skip_locked_test,
+        "skip_locked_test": not run_locked_2014j,
+        "include_locked_test": run_locked_2014j,
         "seed": seed,
         "raw_dir": str(raw_dir),
         "db_path": str(db_path),
         "processed_dir": str(processed_dir),
         "reports_dir": str(reports_dir),
+        "figures_dir": str(figures_dir),
         "artifacts_dir": str(artifacts_dir),
-        "stages": [
-            "1_db_load_and_quality_checks",
-            "2_feature_engineering_operational_and_common_14_21_28",
-            "3_baselines_logreg_lgbm_shap_and_sensitivity_val_select",
-            "4_pytorch_tabular_mlp_val_select",
-            *([] if skip_locked_test else ["5_oof_calibration_lock_and_2014j_eval"]),
-        ],
+        "stages": stages,
     }
     if dry_run:
         return plan
 
+    stage_log: list[dict[str, Any]] = []
+
+    print("[Stage 1-2] Loading DuckDB, 9 SQL quality checks & 6 feature Parquets...", flush=True)
     stage_12 = run_stage_db_and_features(
         raw_dir=raw_dir,
         db_path=db_path,
         processed_dir=processed_dir,
         reports_dir=reports_dir,
     )
+    stage_log.append(
+        {
+            "stage": "1_2_db_and_features",
+            "status": "PASS",
+            "n_parquets": len(stage_12["cohort_summary"]),
+            "quality_violations": sum(stage_12["data_quality"]["quality_checks"].values()),
+        }
+    )
+
+    print("[Stage 3] Training LogReg, LightGBM, 12 cutoffs, SHAP & sensitivity...", flush=True)
     metrics_val, _ = run_p1_b3_validation_suite(
         processed_dir=processed_dir,
         reports_dir=reports_dir,
@@ -147,6 +178,17 @@ def run_pipeline(
         cutoffs=CUTOFFS,
         seed=seed,
     )
+    stage_log.append(
+        {
+            "stage": "3_baselines_val_select",
+            "status": "PASS",
+            "lightgbm_val_pr_auc": metrics_val["models_val_select_t28_operational"]["lightgbm"][
+                "pr_auc"
+            ],
+        }
+    )
+
+    print("[Stage 4] Training PyTorch TabularMLP on val_select (2014J untouched)...", flush=True)
     metrics_val_full = run_p1_b4_torch_suite(
         processed_dir=processed_dir,
         reports_dir=reports_dir,
@@ -155,9 +197,20 @@ def run_pipeline(
         seed=seed,
         prefer_cuda=prefer_cuda,
     )
+    stage_log.append(
+        {
+            "stage": "4_pytorch_tabular_mlp_val_select",
+            "status": "PASS",
+            "tabular_mlp_val_pr_auc": metrics_val_full["models_val_select_t28_operational"][
+                "tabular_mlp"
+            ]["pr_auc"],
+            "device_used": metrics_val_full["tabular_mlp_training_info"]["device_used"],
+        }
+    )
 
     locked_report: dict[str, Any] | None = None
-    if not skip_locked_test:
+    if run_locked_2014j:
+        print("[Stage 4b-5] Running Phase A lock + EXPLICIT 2014J evaluation...", flush=True)
         locked_report = run_p1_b5_locked_evaluation_suite(
             processed_dir=processed_dir,
             reports_dir=reports_dir,
@@ -167,24 +220,57 @@ def run_pipeline(
             seed=seed,
             enable_mlflow=not disable_mlflow,
         )
+        champ_name = locked_report["evaluation_protocol"]["champion_selected_on_val_select"]
+        champ_tau = locked_report["models_test_locked_2014j_t28"][champ_name]["locked_threshold"]
+        bundle_path = artifacts_dir / "champion_locked.joblib"
+        stage_log.append({"stage": "5_locked_test_2014j_evaluation", "status": "PASS"})
+    else:
+        print(
+            "[Stage 4b] Phase A OOF calibration & champion lock strictly on 2013+2014B "
+            "(2014J SKIPPED)...",
+            flush=True,
+        )
+        phase_a = fit_and_lock_phase_a_champion(
+            processed_dir=processed_dir,
+            artifacts_dir=artifacts_dir,
+            seed=seed,
+        )
+        champ_name = str(phase_a["champion_name"])
+        champ_tau = float(phase_a["champion_tau"])
+        bundle_path = Path(phase_a["champion_bundle_path"])
+        stage_log.append(
+            {
+                "stage": "4b_phase_a_oof_calibration_and_champion_lock",
+                "status": "PASS",
+                "champion_name": champ_name,
+                "calibration_method": phase_a["champion_cal"].chosen_method,
+                "locked_threshold": champ_tau,
+                "champion_bundle_exists": bundle_path.is_file(),
+                "locked_test_2014j_accessed": False,
+            }
+        )
 
     return {
         "status": "completed",
         "seed": seed,
-        "stages_executed": plan["stages"],
-        "n_parquets": len(stage_12["cohort_summary"]),
-        "val_select_models": list(metrics_val_full.get("models_val_select_t28_operational", {})),
-        "val_select_lightgbm_pr_auc": metrics_val["models_val_select_t28_operational"]["lightgbm"][
-            "pr_auc"
-        ],
+        "stages_executed": stages,
+        "stage_log": stage_log,
+        "champion_name": champ_name,
+        "locked_threshold": champ_tau,
+        "champion_bundle_path": str(bundle_path),
+        "champion_bundle_exists": bundle_path.is_file(),
         "locked_test_executed": locked_report is not None,
+        "locked_test_2014j_accessed": locked_report is not None,
     }
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
     """Create CLI argument parser for python -m oulad.run_all."""
     parser = argparse.ArgumentParser(
-        description="Run the reproducible OULAD Early Warning pipeline (P1-B1..B5)."
+        description=(
+            "Run the reproducible OULAD Early Warning pipeline. Safe by default: skips locked "
+            "2014J evaluation unless --include-locked-test is explicitly passed."
+        )
     )
     parser.add_argument(
         "--skip-download",
@@ -194,7 +280,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--skip-locked-test",
         action="store_true",
-        help="Stop after validation modeling (P1-B1..B4) without unlocking 2014J.",
+        help=(
+            "Skip locked 2014J evaluation (safe default). Still runs Phase A OOF calibration "
+            "on 2014B val_calib to generate artifacts/champion_locked.joblib for predict --sample."
+        ),
+    )
+    parser.add_argument(
+        "--include-locked-test",
+        action="store_true",
+        help=(
+            "Explicitly opt in to Stage 5 (2014J locked test evaluation). Do NOT use if you "
+            "want to preserve frozen historical reports/metrics_test_locked.json."
+        ),
     )
     parser.add_argument(
         "--dry-run",
@@ -234,9 +331,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     """CLI entrypoint."""
     args = build_arg_parser().parse_args(argv)
+    if args.skip_locked_test and args.include_locked_test:
+        raise ValueError(
+            "Conflicting flags: cannot pass both --skip-locked-test and --include-locked-test."
+        )
+
     summary = run_pipeline(
         skip_download=args.skip_download,
-        skip_locked_test=args.skip_locked_test,
+        skip_locked_test=not args.include_locked_test,
+        include_locked_test=args.include_locked_test,
         dry_run=args.dry_run,
         disable_mlflow=args.disable_mlflow,
         prefer_cuda=args.prefer_cuda,
@@ -248,7 +351,7 @@ def main(argv: list[str] | None = None) -> int:
         figures_dir=args.figures_dir,
         artifacts_dir=args.artifacts_dir,
     )
-    print(json.dumps(summary, indent=2))
+    print(json.dumps(summary, indent=2), file=sys.stdout)
     return 0
 
 
