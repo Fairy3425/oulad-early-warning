@@ -2,8 +2,10 @@
 
 Enforces AUD-17:
 - Auto device selection: cuda if available, clean CPU fallback for CI / CPU-only machines.
-- AdamW(lr=1e-3, weight_decay=1e-4) + UNWEIGHTED nn.BCEWithLogitsLoss() to preserve
-  base-rate probability calibration for P1-B5 (asymmetric costs handled at thresholding).
+- AdamW(lr=1e-3, weight_decay=1e-4) + UNWEIGHTED nn.BCEWithLogitsLoss(): avoids
+  intentional prior-odds distortion from class weighting (pos_weight); does NOT by
+  itself guarantee calibrated probabilities or preserve deployment base rate under
+  temporal shift — post-hoc probability calibration & thresholding happen in P1-B5.
 - Strict model.eval() + torch.no_grad() for validation/inference, copy.deepcopy() for
   best state_dict, and Early Stopping (patience=5) strictly on val_select (2014J locked).
 """
@@ -76,7 +78,7 @@ def predict_torch_proba(
     batch_size: int = 512,
     device: torch.device | None = None,
 ) -> np.ndarray:
-    """Predict calibrated-ready positive probabilities in eval mode without gradient tracking."""
+    """Predict uncalibrated positive-class probabilities in eval mode without gradient tracking."""
     target_device = device if device is not None else next(model.parameters()).device
     X_num, X_cat = preprocessor.transform(X)
     dataset = OULADDataset(X_num, X_cat, y=None)
@@ -136,7 +138,8 @@ def train_tabular_mlp(
         norm_type="layernorm",
     ).to(device)
 
-    # Unweighted BCEWithLogitsLoss preserves base-rate prior for P1-B5 calibration (AUD-17)
+    # Unweighted BCEWithLogitsLoss avoids class-reweighting prior-odds shift (AUD-17);
+    # post-hoc probability calibration & cost-aware thresholding are separate steps in P1-B5.
     criterion = nn.BCEWithLogitsLoss()
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
 
@@ -366,7 +369,10 @@ def run_p1_b4_torch_suite(
         "hidden_dims": list(result.model.hidden_dims),
         "dropout": result.model.dropout,
         "norm_type": result.model.norm_type,
-        "loss_function": "BCEWithLogitsLoss (unweighted — preserves base-rate prior per AUD-17)",
+        "loss_function": (
+            "BCEWithLogitsLoss (unweighted — avoids class-reweighting prior-odds shift; "
+            "post-hoc calibration & thresholding handled separately in P1-B5)"
+        ),
         "optimizer": "AdamW(lr=1e-3, weight_decay=1e-4)",
         "early_stopping_patience": 5,
         "checkpoint_path": "artifacts/tabular_mlp_best.pt (gitignored)",

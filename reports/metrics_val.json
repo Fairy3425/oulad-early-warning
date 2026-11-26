@@ -208,7 +208,7 @@
     ],
     "dropout": 0.2,
     "norm_type": "layernorm",
-    "loss_function": "BCEWithLogitsLoss (unweighted \u2014 preserves base-rate prior per AUD-17)",
+    "loss_function": "BCEWithLogitsLoss (unweighted — avoids class-reweighting prior-odds shift; post-hoc calibration & thresholding handled separately in P1-B5)",
     "optimizer": "AdamW(lr=1e-3, weight_decay=1e-4)",
     "early_stopping_patience": 5,
     "checkpoint_path": "artifacts/tabular_mlp_best.pt (gitignored)",
