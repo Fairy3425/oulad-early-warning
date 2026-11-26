@@ -1,0 +1,168 @@
+"""Contract unit tests for OOF calibration guards, threshold fallback, FP/FN & fairness (P1-B5)."""
+
+import numpy as np
+import pandas as pd
+from sklearn.linear_model import LogisticRegression
+
+from oulad.config import SEED
+from oulad.evaluate import (
+    compute_ece,
+    compute_subgroup_fairness,
+    extract_post_lock_error_samples,
+    select_best_calibrator_oof,
+    select_threshold_with_fallback,
+)
+
+
+def _fit_simple_binary_model(n_rows: int, seed: int = SEED) -> tuple[
+    LogisticRegression, pd.DataFrame, pd.Series
+]:
+    """Fit a simple deterministic binary LogisticRegression on synthetic Gaussian features."""
+    rng = np.random.default_rng(seed)
+    X_tr = pd.DataFrame(rng.normal(size=(400, 3)), columns=["f1", "f2", "f3"])
+    y_tr = pd.Series(
+        (1.4 * X_tr["f1"] - 0.8 * X_tr["f2"] + rng.normal(0, 0.7, 400) > 0).astype(int)
+    )
+
+    model = LogisticRegression(random_state=seed)
+    model.fit(X_tr, y_tr)
+
+    X_cal = pd.DataFrame(rng.normal(size=(n_rows, 3)), columns=["f1", "f2", "f3"])
+    y_cal = pd.Series(
+        (1.4 * X_cal["f1"] - 0.8 * X_cal["f2"] + rng.normal(0, 0.7, n_rows) > 0).astype(int)
+    )
+    return model, X_cal, y_cal
+
+
+def test_oof_calibration_blocks_isotonic_when_n_calib_below_1000() -> None:
+    """AUD-08 / FA-02: n_calib < 1000 must strictly block isotonic and run explicit 5-fold OOF."""
+    model, X_cal, y_cal = _fit_simple_binary_model(n_rows=200, seed=SEED)
+    res = select_best_calibrator_oof(model, X_cal, y_cal, n_splits=5, seed=SEED)
+
+    assert res.n_calib == 200
+    assert res.isotonic_blocked is True
+    assert "isotonic" not in res.candidate_metrics
+    assert set(res.candidate_metrics.keys()) == {"uncalibrated", "sigmoid"}
+    assert res.chosen_method in {"uncalibrated", "sigmoid"}
+    assert len(res.oof_probs_winner) == 200
+    assert np.all((res.oof_probs_winner >= 0.0) & (res.oof_probs_winner <= 1.0))
+
+
+def test_oof_calibration_enables_isotonic_when_n_calib_ge_1000() -> None:
+    """When n_calib >= 1000 & min_fold_train >= 800, all 3 methods run via FrozenEstimator."""
+    model, X_cal, y_cal = _fit_simple_binary_model(n_rows=1050, seed=SEED)
+    res = select_best_calibrator_oof(model, X_cal, y_cal, n_splits=5, seed=SEED)
+
+    assert res.n_calib == 1050
+    assert res.min_fold_train >= 800
+    assert res.isotonic_blocked is False
+    assert set(res.candidate_metrics.keys()) == {"uncalibrated", "sigmoid", "isotonic"}
+    assert res.chosen_method in {"uncalibrated", "sigmoid", "isotonic"}
+    if res.final_calibrator is not None:
+        assert len(res.final_calibrator.calibrated_classifiers_) == 1
+
+
+def test_threshold_selection_transparent_fallback_when_precision_unattainable() -> None:
+    """AUD-08: Unattainable Precision>=0.70 must log target_precision_met=False & max_f1."""
+    rng = np.random.default_rng(SEED)
+    y_true = np.zeros(200, dtype=np.int64)
+    y_true[:50] = 1  # 25% positive rate, pure random scores -> precision hovers near ~0.25-0.45
+    y_prob = rng.uniform(0.1, 0.9, size=200)
+
+    res = select_threshold_with_fallback(
+        y_true, y_prob, target_precision=0.70, min_predicted_positives=30
+    )
+    assert res.target_precision_met is False
+    assert res.fallback_used == "max_f1"
+    assert res.max_achievable_precision < 0.70
+    assert 0.0 < res.threshold < 1.0
+
+
+def test_threshold_selection_meets_target_precision_when_attainable() -> None:
+    """When Precision >= 0.70 is attainable (>= 30 pred pos), pick highest-Recall threshold."""
+    y_true = np.array([1] * 60 + [0] * 140, dtype=np.int64)
+    y_prob = np.concatenate([np.linspace(0.65, 0.99, 60), np.linspace(0.01, 0.55, 140)])
+
+    res = select_threshold_with_fallback(
+        y_true, y_prob, target_precision=0.70, min_predicted_positives=30
+    )
+    assert res.target_precision_met is True
+    assert res.fallback_used is None
+    assert res.oof_precision >= 0.70
+    assert res.oof_n_predicted_positives >= 30
+
+
+def test_post_lock_error_samples_use_min_20_len_without_fabrication() -> None:
+    """AUD-08: Must return exact count when FP/FN < 20 and cap strictly at 20 when > 20."""
+    # Case 1: only 3 FPs and 2 FNs -> must report exact 3 and 2 (never fabricate 20)
+    df_small = pd.DataFrame(
+        {
+            "code_module": ["AAA"] * 10,
+            "code_presentation": ["2014J"] * 10,
+            "id_student": list(range(1, 11)),
+            "target": [0, 0, 0, 0, 0, 1, 1, 1, 1, 1],
+        }
+    )
+    probs_small = np.array([0.9, 0.8, 0.7, 0.1, 0.2, 0.1, 0.2, 0.9, 0.8, 0.85])
+    audit_small = extract_post_lock_error_samples(df_small, probs_small, threshold=0.5, max_k=20)
+    assert audit_small["total_fp"] == 3 and audit_small["sampled_fp_count"] == 3
+    assert len(audit_small["fp_samples"]) == 3
+    assert audit_small["total_fn"] == 2 and audit_small["sampled_fn_count"] == 2
+    assert len(audit_small["fn_samples"]) == 2
+
+    # Case 2: 35 FPs -> must cap at 20
+    df_large = pd.DataFrame(
+        {
+            "code_module": ["AAA"] * 35,
+            "code_presentation": ["2014J"] * 35,
+            "id_student": list(range(1, 36)),
+            "target": [0] * 35,
+        }
+    )
+    probs_large = np.linspace(0.6, 0.99, 35)
+    audit_large = extract_post_lock_error_samples(df_large, probs_large, threshold=0.5, max_k=20)
+    assert audit_large["total_fp"] == 35 and audit_large["sampled_fp_count"] == 20
+    assert len(audit_large["fp_samples"]) == 20
+
+
+def test_subgroup_fairness_columns_low_sample_warning_and_missing() -> None:
+    """Fairness table must include n, n_pos, low_sample_warning (n < 30), and MISSING handling."""
+    df = pd.DataFrame(
+        {
+            "gender": ["M"] * 35 + ["F"] * 10,  # F has n=10 < 30 -> warning True; M -> False
+            "disability": ["N"] * 40 + ["Y"] * 5,
+            "imd_band": ["20-30%"] * 35 + [None] * 10,
+            "age_band": ["0-35"] * 45,
+            "target": [1, 0] * 22 + [1],
+        }
+    )
+    probs = np.where(df["target"] == 1, 0.8, 0.2)
+    fair = compute_subgroup_fairness(df, probs, threshold=0.5, min_group_n=30)
+
+    required_cols = {
+        "group_col",
+        "group_value",
+        "n",
+        "n_pos",
+        "positive_rate",
+        "recall",
+        "precision",
+        "fpr",
+        "low_sample_warning",
+    }
+    assert required_cols.issubset(set(fair.columns))
+
+    row_m = fair[(fair["group_col"] == "gender") & (fair["group_value"] == "M")].iloc[0]
+    row_f = fair[(fair["group_col"] == "gender") & (fair["group_value"] == "F")].iloc[0]
+    assert int(row_m["n"]) == 35 and bool(row_m["low_sample_warning"]) is False
+    assert int(row_f["n"]) == 10 and bool(row_f["low_sample_warning"]) is True
+
+    missing_imd = fair[(fair["group_col"] == "imd_band") & (fair["group_value"] == "MISSING")]
+    assert len(missing_imd) == 1 and int(missing_imd.iloc[0]["n"]) == 10
+
+
+def test_compute_ece_boundary_cases() -> None:
+    """Perfect constant calibration yields ECE=0; completely inverted predictions yield ECE=1."""
+    y = np.array([0, 1, 0, 1], dtype=np.int64)
+    assert compute_ece(y, np.array([0.5, 0.5, 0.5, 0.5])) == 0.0
+    assert compute_ece(y, np.array([1.0, 0.0, 1.0, 0.0])) == 1.0

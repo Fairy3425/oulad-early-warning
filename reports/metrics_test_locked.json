@@ -1,0 +1,915 @@
+{
+  "evaluation_protocol": {
+    "split_name": "Presentation-Based Forward Split (AUD-07)",
+    "locked_test_presentation": "2014J",
+    "single_unlock_discipline": true,
+    "locked_before_test_unlock": true,
+    "post_unlock_model_edits": 0,
+    "champion_selected_on_val_select": "lightgbm",
+    "val_select_pr_auc_ranking": {
+      "logistic_regression": 0.7815,
+      "lightgbm": 0.7871,
+      "tabular_mlp": 0.7695
+    },
+    "n_test_2014j": 9213,
+    "test_positive_rate": 0.4079,
+    "val_calib_positive_rate": 0.4843,
+    "seed": 42
+  },
+  "oof_calibration_val_calib": {
+    "logistic_regression": {
+      "n_calib": 2604,
+      "min_fold_train": 2083,
+      "isotonic_blocked": false,
+      "candidate_oof_metrics": {
+        "uncalibrated": {
+          "brier_score": 0.18093,
+          "ece_10bins": 0.03157
+        },
+        "sigmoid": {
+          "brier_score": 0.18006,
+          "ece_10bins": 0.03082
+        },
+        "isotonic": {
+          "brier_score": 0.18059,
+          "ece_10bins": 0.01314
+        }
+      },
+      "chosen_method": "sigmoid",
+      "threshold_selection_oof": {
+        "threshold": 0.4398,
+        "target_precision": 0.7,
+        "min_predicted_positives": 30,
+        "target_precision_met": true,
+        "fallback_used": null,
+        "max_achievable_precision": 0.9877,
+        "oof_precision": 0.7,
+        "oof_recall": 0.7272,
+        "oof_f1": 0.7133,
+        "oof_n_predicted_positives": 1310
+      }
+    },
+    "lightgbm": {
+      "n_calib": 2604,
+      "min_fold_train": 2083,
+      "isotonic_blocked": false,
+      "candidate_oof_metrics": {
+        "uncalibrated": {
+          "brier_score": 0.17912,
+          "ece_10bins": 0.01429
+        },
+        "sigmoid": {
+          "brier_score": 0.18011,
+          "ece_10bins": 0.02912
+        },
+        "isotonic": {
+          "brier_score": 0.18064,
+          "ece_10bins": 0.01362
+        }
+      },
+      "chosen_method": "uncalibrated",
+      "threshold_selection_oof": {
+        "threshold": 0.4279,
+        "target_precision": 0.7,
+        "min_predicted_positives": 30,
+        "target_precision_met": true,
+        "fallback_used": null,
+        "max_achievable_precision": 0.9846,
+        "oof_precision": 0.7011,
+        "oof_recall": 0.7328,
+        "oof_f1": 0.7166,
+        "oof_n_predicted_positives": 1318
+      }
+    },
+    "tabular_mlp": {
+      "n_calib": 2604,
+      "min_fold_train": 2083,
+      "isotonic_blocked": false,
+      "candidate_oof_metrics": {
+        "uncalibrated": {
+          "brier_score": 0.18535,
+          "ece_10bins": 0.05136
+        },
+        "sigmoid": {
+          "brier_score": 0.18424,
+          "ece_10bins": 0.04199
+        },
+        "isotonic": {
+          "brier_score": 0.18429,
+          "ece_10bins": 0.01887
+        }
+      },
+      "chosen_method": "sigmoid",
+      "threshold_selection_oof": {
+        "threshold": 0.4156,
+        "target_precision": 0.7,
+        "min_predicted_positives": 30,
+        "target_precision_met": true,
+        "fallback_used": null,
+        "max_achievable_precision": 1.0,
+        "oof_precision": 0.7004,
+        "oof_recall": 0.7137,
+        "oof_f1": 0.707,
+        "oof_n_predicted_positives": 1285
+      }
+    }
+  },
+  "models_test_locked_2014j_t28": {
+    "logistic_regression": {
+      "calibration_method": "sigmoid",
+      "locked_threshold": 0.4398,
+      "uncalibrated_raw": {
+        "n": 9213,
+        "n_pos": 3758,
+        "positive_rate": 0.4079,
+        "pr_auc": 0.6184,
+        "roc_auc": 0.7239,
+        "brier_score": 0.218,
+        "ece_10bins": 0.0814,
+        "threshold": 0.4398,
+        "n_predicted_positives": 3610,
+        "precision": 0.6285,
+        "recall": 0.6038,
+        "f1": 0.6159,
+        "confusion_matrix": {
+          "tn": 4114,
+          "fp": 1341,
+          "fn": 1489,
+          "tp": 2269
+        }
+      },
+      "calibrated_or_final": {
+        "n": 9213,
+        "n_pos": 3758,
+        "positive_rate": 0.4079,
+        "pr_auc": 0.6184,
+        "roc_auc": 0.7239,
+        "brier_score": 0.2187,
+        "ece_10bins": 0.0812,
+        "threshold": 0.4398,
+        "n_predicted_positives": 3945,
+        "precision": 0.6132,
+        "recall": 0.6437,
+        "f1": 0.6281,
+        "confusion_matrix": {
+          "tn": 3929,
+          "fp": 1526,
+          "fn": 1339,
+          "tp": 2419
+        }
+      },
+      "brier_delta_post_minus_pre": 0.0007,
+      "ece_delta_post_minus_pre": -0.0002
+    },
+    "lightgbm": {
+      "calibration_method": "uncalibrated",
+      "locked_threshold": 0.4279,
+      "uncalibrated_raw": {
+        "n": 9213,
+        "n_pos": 3758,
+        "positive_rate": 0.4079,
+        "pr_auc": 0.6813,
+        "roc_auc": 0.7467,
+        "brier_score": 0.204,
+        "ece_10bins": 0.0542,
+        "threshold": 0.4279,
+        "n_predicted_positives": 4275,
+        "precision": 0.6023,
+        "recall": 0.6852,
+        "f1": 0.6411,
+        "confusion_matrix": {
+          "tn": 3755,
+          "fp": 1700,
+          "fn": 1183,
+          "tp": 2575
+        }
+      },
+      "calibrated_or_final": {
+        "n": 9213,
+        "n_pos": 3758,
+        "positive_rate": 0.4079,
+        "pr_auc": 0.6813,
+        "roc_auc": 0.7467,
+        "brier_score": 0.204,
+        "ece_10bins": 0.0542,
+        "threshold": 0.4279,
+        "n_predicted_positives": 4275,
+        "precision": 0.6023,
+        "recall": 0.6852,
+        "f1": 0.6411,
+        "confusion_matrix": {
+          "tn": 3755,
+          "fp": 1700,
+          "fn": 1183,
+          "tp": 2575
+        }
+      },
+      "brier_delta_post_minus_pre": 0.0,
+      "ece_delta_post_minus_pre": 0.0
+    },
+    "tabular_mlp": {
+      "calibration_method": "sigmoid",
+      "locked_threshold": 0.4156,
+      "uncalibrated_raw": {
+        "n": 9213,
+        "n_pos": 3758,
+        "positive_rate": 0.4079,
+        "pr_auc": 0.6376,
+        "roc_auc": 0.7221,
+        "brier_score": 0.2128,
+        "ece_10bins": 0.0532,
+        "threshold": 0.4156,
+        "n_predicted_positives": 3751,
+        "precision": 0.6118,
+        "recall": 0.6107,
+        "f1": 0.6113,
+        "confusion_matrix": {
+          "tn": 3999,
+          "fp": 1456,
+          "fn": 1463,
+          "tp": 2295
+        }
+      },
+      "calibrated_or_final": {
+        "n": 9213,
+        "n_pos": 3758,
+        "positive_rate": 0.4079,
+        "pr_auc": 0.6376,
+        "roc_auc": 0.7221,
+        "brier_score": 0.2186,
+        "ece_10bins": 0.0713,
+        "threshold": 0.4156,
+        "n_predicted_positives": 3999,
+        "precision": 0.6022,
+        "recall": 0.6408,
+        "f1": 0.6209,
+        "confusion_matrix": {
+          "tn": 3864,
+          "fp": 1591,
+          "fn": 1350,
+          "tp": 2408
+        }
+      },
+      "brier_delta_post_minus_pre": 0.0058,
+      "ece_delta_post_minus_pre": 0.0181
+    }
+  },
+  "returning_vs_new_test_locked_2014j_t28": {
+    "logistic_regression": {
+      "returning_pct": 8.49,
+      "returning": {
+        "n": 782,
+        "n_pos": 453,
+        "positive_rate": 0.5793,
+        "pr_auc": 0.7717,
+        "roc_auc": 0.739,
+        "brier_score": 0.2158
+      },
+      "new": {
+        "n": 8431,
+        "n_pos": 3305,
+        "positive_rate": 0.392,
+        "pr_auc": 0.5993,
+        "roc_auc": 0.7203,
+        "brier_score": 0.219
+      }
+    },
+    "lightgbm": {
+      "returning_pct": 8.49,
+      "returning": {
+        "n": 782,
+        "n_pos": 453,
+        "positive_rate": 0.5793,
+        "pr_auc": 0.7987,
+        "roc_auc": 0.7442,
+        "brier_score": 0.2037
+      },
+      "new": {
+        "n": 8431,
+        "n_pos": 3305,
+        "positive_rate": 0.392,
+        "pr_auc": 0.664,
+        "roc_auc": 0.7428,
+        "brier_score": 0.204
+      }
+    },
+    "tabular_mlp": {
+      "returning_pct": 8.49,
+      "returning": {
+        "n": 782,
+        "n_pos": 453,
+        "positive_rate": 0.5793,
+        "pr_auc": 0.777,
+        "roc_auc": 0.7296,
+        "brier_score": 0.2173
+      },
+      "new": {
+        "n": 8431,
+        "n_pos": 3305,
+        "positive_rate": 0.392,
+        "pr_auc": 0.621,
+        "roc_auc": 0.7185,
+        "brier_score": 0.2187
+      }
+    }
+  },
+  "sensitivity_checks_test_locked_2014j": {
+    "sensitive_demographic_ablation": {
+      "dropped_columns": [
+        "gender",
+        "disability",
+        "imd_band"
+      ],
+      "lightgbm": {
+        "n": 9213,
+        "n_pos": 3758,
+        "positive_rate": 0.4079,
+        "pr_auc": 0.6799,
+        "roc_auc": 0.7466,
+        "brier_score": 0.203
+      },
+      "delta_pr_auc_vs_full_raw": -0.0014,
+      "delta_roc_auc_vs_full_raw": -0.0001
+    },
+    "score_free_date_graded_check": {
+      "dropped_columns": [
+        "mean_score",
+        "has_score"
+      ],
+      "lightgbm": {
+        "n": 9213,
+        "n_pos": 3758,
+        "positive_rate": 0.4079,
+        "pr_auc": 0.7008,
+        "roc_auc": 0.7525,
+        "brier_score": 0.1948
+      },
+      "delta_pr_auc_vs_full_raw": 0.0195,
+      "delta_roc_auc_vs_full_raw": 0.0058
+    }
+  },
+  "illustrative_cost_benefit_2014j": [
+    {
+      "cost_ratio_fp_to_fn": "1:5",
+      "policy": "locked_tau",
+      "threshold": 0.4279,
+      "fp": 1700,
+      "fn": 1183,
+      "tp": 2575,
+      "tn": 3755,
+      "total_illustrative_cost": 7615,
+      "cost_per_student": 0.8265,
+      "disclaimer": "Illustrative cost assumption only (not real institutional cost)."
+    },
+    {
+      "cost_ratio_fp_to_fn": "1:5",
+      "policy": "bayes_cost_tau",
+      "threshold": 0.1667,
+      "fp": 4216,
+      "fn": 180,
+      "tp": 3578,
+      "tn": 1239,
+      "total_illustrative_cost": 5116,
+      "cost_per_student": 0.5553,
+      "disclaimer": "Illustrative cost assumption only (not real institutional cost)."
+    },
+    {
+      "cost_ratio_fp_to_fn": "1:10",
+      "policy": "locked_tau",
+      "threshold": 0.4279,
+      "fp": 1700,
+      "fn": 1183,
+      "tp": 2575,
+      "tn": 3755,
+      "total_illustrative_cost": 13530,
+      "cost_per_student": 1.4686,
+      "disclaimer": "Illustrative cost assumption only (not real institutional cost)."
+    },
+    {
+      "cost_ratio_fp_to_fn": "1:10",
+      "policy": "bayes_cost_tau",
+      "threshold": 0.0909,
+      "fp": 5247,
+      "fn": 12,
+      "tp": 3746,
+      "tn": 208,
+      "total_illustrative_cost": 5367,
+      "cost_per_student": 0.5825,
+      "disclaimer": "Illustrative cost assumption only (not real institutional cost)."
+    }
+  ],
+  "post_lock_error_analysis_2014j": {
+    "policy": "Post-lock observational error audit ONLY (no model edits after 2014J unlock).",
+    "max_k_requested": 20,
+    "total_fp": 1700,
+    "sampled_fp_count": 20,
+    "fp_samples": [
+      {
+        "code_module": "FFF",
+        "code_presentation": "2014J",
+        "id_student": 383629,
+        "target": 0,
+        "pred_prob": 0.9508,
+        "clicks_total": 64.0,
+        "active_days": 6,
+        "submission_rate_due": 0.0,
+        "mean_score": null,
+        "days_since_last_click": 3
+      },
+      {
+        "code_module": "DDD",
+        "code_presentation": "2014J",
+        "id_student": 1832492,
+        "target": 0,
+        "pred_prob": 0.9468,
+        "clicks_total": 349.0,
+        "active_days": 29,
+        "submission_rate_due": 1.0,
+        "mean_score": 35.0,
+        "days_since_last_click": 5
+      },
+      {
+        "code_module": "FFF",
+        "code_presentation": "2014J",
+        "id_student": 648105,
+        "target": 0,
+        "pred_prob": 0.945,
+        "clicks_total": 166.0,
+        "active_days": 8,
+        "submission_rate_due": 0.0,
+        "mean_score": null,
+        "days_since_last_click": 6
+      },
+      {
+        "code_module": "FFF",
+        "code_presentation": "2014J",
+        "id_student": 583318,
+        "target": 0,
+        "pred_prob": 0.9398,
+        "clicks_total": 36.0,
+        "active_days": 6,
+        "submission_rate_due": 0.0,
+        "mean_score": null,
+        "days_since_last_click": 5
+      },
+      {
+        "code_module": "FFF",
+        "code_presentation": "2014J",
+        "id_student": 338689,
+        "target": 0,
+        "pred_prob": 0.9385,
+        "clicks_total": 42.0,
+        "active_days": 7,
+        "submission_rate_due": 0.0,
+        "mean_score": null,
+        "days_since_last_click": 4
+      },
+      {
+        "code_module": "FFF",
+        "code_presentation": "2014J",
+        "id_student": 562064,
+        "target": 0,
+        "pred_prob": 0.9278,
+        "clicks_total": 19.0,
+        "active_days": 4,
+        "submission_rate_due": 0.0,
+        "mean_score": null,
+        "days_since_last_click": 6
+      },
+      {
+        "code_module": "FFF",
+        "code_presentation": "2014J",
+        "id_student": 679790,
+        "target": 0,
+        "pred_prob": 0.9253,
+        "clicks_total": 73.0,
+        "active_days": 7,
+        "submission_rate_due": 0.0,
+        "mean_score": null,
+        "days_since_last_click": 5
+      },
+      {
+        "code_module": "BBB",
+        "code_presentation": "2014J",
+        "id_student": 692164,
+        "target": 0,
+        "pred_prob": 0.9238,
+        "clicks_total": 287.0,
+        "active_days": 7,
+        "submission_rate_due": 1.0,
+        "mean_score": 1.0,
+        "days_since_last_click": 2
+      },
+      {
+        "code_module": "DDD",
+        "code_presentation": "2014J",
+        "id_student": 649949,
+        "target": 0,
+        "pred_prob": 0.9221,
+        "clicks_total": 37.0,
+        "active_days": 4,
+        "submission_rate_due": 0.0,
+        "mean_score": null,
+        "days_since_last_click": 6
+      },
+      {
+        "code_module": "BBB",
+        "code_presentation": "2014J",
+        "id_student": 70569,
+        "target": 0,
+        "pred_prob": 0.9186,
+        "clicks_total": 141.0,
+        "active_days": 7,
+        "submission_rate_due": 1.0,
+        "mean_score": 1.0,
+        "days_since_last_click": 16
+      },
+      {
+        "code_module": "DDD",
+        "code_presentation": "2014J",
+        "id_student": 636451,
+        "target": 0,
+        "pred_prob": 0.9152,
+        "clicks_total": 70.0,
+        "active_days": 13,
+        "submission_rate_due": 0.0,
+        "mean_score": null,
+        "days_since_last_click": 8
+      },
+      {
+        "code_module": "FFF",
+        "code_presentation": "2014J",
+        "id_student": 419059,
+        "target": 0,
+        "pred_prob": 0.9128,
+        "clicks_total": 419.0,
+        "active_days": 27,
+        "submission_rate_due": 0.0,
+        "mean_score": null,
+        "days_since_last_click": 1
+      },
+      {
+        "code_module": "CCC",
+        "code_presentation": "2014J",
+        "id_student": 653821,
+        "target": 0,
+        "pred_prob": 0.9126,
+        "clicks_total": 0.0,
+        "active_days": 0,
+        "submission_rate_due": 0.0,
+        "mean_score": null,
+        "days_since_last_click": null
+      },
+      {
+        "code_module": "CCC",
+        "code_presentation": "2014J",
+        "id_student": 563051,
+        "target": 0,
+        "pred_prob": 0.9122,
+        "clicks_total": 165.0,
+        "active_days": 6,
+        "submission_rate_due": 1.0,
+        "mean_score": 22.0,
+        "days_since_last_click": 0
+      },
+      {
+        "code_module": "BBB",
+        "code_presentation": "2014J",
+        "id_student": 631954,
+        "target": 0,
+        "pred_prob": 0.9117,
+        "clicks_total": 38.0,
+        "active_days": 3,
+        "submission_rate_due": 0.0,
+        "mean_score": null,
+        "days_since_last_click": 4
+      },
+      {
+        "code_module": "DDD",
+        "code_presentation": "2014J",
+        "id_student": 651579,
+        "target": 0,
+        "pred_prob": 0.9113,
+        "clicks_total": 29.0,
+        "active_days": 5,
+        "submission_rate_due": 1.0,
+        "mean_score": 40.0,
+        "days_since_last_click": 3
+      },
+      {
+        "code_module": "FFF",
+        "code_presentation": "2014J",
+        "id_student": 649118,
+        "target": 0,
+        "pred_prob": 0.9112,
+        "clicks_total": 260.0,
+        "active_days": 6,
+        "submission_rate_due": 0.0,
+        "mean_score": null,
+        "days_since_last_click": 1
+      },
+      {
+        "code_module": "BBB",
+        "code_presentation": "2014J",
+        "id_student": 573534,
+        "target": 0,
+        "pred_prob": 0.9108,
+        "clicks_total": 137.0,
+        "active_days": 6,
+        "submission_rate_due": 1.0,
+        "mean_score": 1.0,
+        "days_since_last_click": 4
+      },
+      {
+        "code_module": "BBB",
+        "code_presentation": "2014J",
+        "id_student": 675223,
+        "target": 0,
+        "pred_prob": 0.9102,
+        "clicks_total": 191.0,
+        "active_days": 15,
+        "submission_rate_due": 1.0,
+        "mean_score": 1.0,
+        "days_since_last_click": 2
+      },
+      {
+        "code_module": "CCC",
+        "code_presentation": "2014J",
+        "id_student": 603529,
+        "target": 0,
+        "pred_prob": 0.9087,
+        "clicks_total": 194.0,
+        "active_days": 5,
+        "submission_rate_due": 1.0,
+        "mean_score": 11.0,
+        "days_since_last_click": 3
+      }
+    ],
+    "total_fn": 1183,
+    "sampled_fn_count": 20,
+    "fn_samples": [
+      {
+        "code_module": "BBB",
+        "code_presentation": "2014J",
+        "id_student": 601983,
+        "target": 1,
+        "pred_prob": 0.0621,
+        "clicks_total": 307.0,
+        "active_days": 27,
+        "submission_rate_due": 1.0,
+        "mean_score": 100.0,
+        "days_since_last_click": 0
+      },
+      {
+        "code_module": "DDD",
+        "code_presentation": "2014J",
+        "id_student": 2680988,
+        "target": 1,
+        "pred_prob": 0.0675,
+        "clicks_total": 1062.0,
+        "active_days": 39,
+        "submission_rate_due": 1.0,
+        "mean_score": 100.0,
+        "days_since_last_click": 0
+      },
+      {
+        "code_module": "BBB",
+        "code_presentation": "2014J",
+        "id_student": 653597,
+        "target": 1,
+        "pred_prob": 0.0693,
+        "clicks_total": 193.0,
+        "active_days": 14,
+        "submission_rate_due": 1.0,
+        "mean_score": 100.0,
+        "days_since_last_click": 1
+      },
+      {
+        "code_module": "FFF",
+        "code_presentation": "2014J",
+        "id_student": 625330,
+        "target": 1,
+        "pred_prob": 0.0785,
+        "clicks_total": 1599.0,
+        "active_days": 38,
+        "submission_rate_due": 1.0,
+        "mean_score": 90.5,
+        "days_since_last_click": 0
+      },
+      {
+        "code_module": "DDD",
+        "code_presentation": "2014J",
+        "id_student": 615183,
+        "target": 1,
+        "pred_prob": 0.0824,
+        "clicks_total": 428.0,
+        "active_days": 34,
+        "submission_rate_due": 1.0,
+        "mean_score": 95.0,
+        "days_since_last_click": 1
+      },
+      {
+        "code_module": "EEE",
+        "code_presentation": "2014J",
+        "id_student": 687498,
+        "target": 1,
+        "pred_prob": 0.0883,
+        "clicks_total": 272.0,
+        "active_days": 14,
+        "submission_rate_due": null,
+        "mean_score": 98.0,
+        "days_since_last_click": 1
+      },
+      {
+        "code_module": "BBB",
+        "code_presentation": "2014J",
+        "id_student": 513250,
+        "target": 1,
+        "pred_prob": 0.0888,
+        "clicks_total": 424.0,
+        "active_days": 23,
+        "submission_rate_due": 1.0,
+        "mean_score": 100.0,
+        "days_since_last_click": 1
+      },
+      {
+        "code_module": "CCC",
+        "code_presentation": "2014J",
+        "id_student": 528290,
+        "target": 1,
+        "pred_prob": 0.0892,
+        "clicks_total": 592.0,
+        "active_days": 24,
+        "submission_rate_due": 1.0,
+        "mean_score": 97.0,
+        "days_since_last_click": 2
+      },
+      {
+        "code_module": "EEE",
+        "code_presentation": "2014J",
+        "id_student": 684967,
+        "target": 1,
+        "pred_prob": 0.0896,
+        "clicks_total": 604.0,
+        "active_days": 29,
+        "submission_rate_due": null,
+        "mean_score": 97.0,
+        "days_since_last_click": 1
+      },
+      {
+        "code_module": "FFF",
+        "code_presentation": "2014J",
+        "id_student": 688136,
+        "target": 1,
+        "pred_prob": 0.0903,
+        "clicks_total": 3300.0,
+        "active_days": 43,
+        "submission_rate_due": 1.0,
+        "mean_score": 93.3333,
+        "days_since_last_click": 0
+      },
+      {
+        "code_module": "BBB",
+        "code_presentation": "2014J",
+        "id_student": 653541,
+        "target": 1,
+        "pred_prob": 0.0907,
+        "clicks_total": 140.0,
+        "active_days": 17,
+        "submission_rate_due": 1.0,
+        "mean_score": 100.0,
+        "days_since_last_click": 2
+      },
+      {
+        "code_module": "BBB",
+        "code_presentation": "2014J",
+        "id_student": 677498,
+        "target": 1,
+        "pred_prob": 0.0909,
+        "clicks_total": 291.0,
+        "active_days": 13,
+        "submission_rate_due": 1.0,
+        "mean_score": 100.0,
+        "days_since_last_click": 1
+      },
+      {
+        "code_module": "BBB",
+        "code_presentation": "2014J",
+        "id_student": 2278390,
+        "target": 1,
+        "pred_prob": 0.0911,
+        "clicks_total": 2235.0,
+        "active_days": 35,
+        "submission_rate_due": 1.0,
+        "mean_score": 100.0,
+        "days_since_last_click": 0
+      },
+      {
+        "code_module": "EEE",
+        "code_presentation": "2014J",
+        "id_student": 699135,
+        "target": 1,
+        "pred_prob": 0.0928,
+        "clicks_total": 1734.0,
+        "active_days": 35,
+        "submission_rate_due": null,
+        "mean_score": null,
+        "days_since_last_click": 0
+      },
+      {
+        "code_module": "DDD",
+        "code_presentation": "2014J",
+        "id_student": 420344,
+        "target": 1,
+        "pred_prob": 0.0939,
+        "clicks_total": 1101.0,
+        "active_days": 48,
+        "submission_rate_due": 1.0,
+        "mean_score": 90.0,
+        "days_since_last_click": 0
+      },
+      {
+        "code_module": "BBB",
+        "code_presentation": "2014J",
+        "id_student": 680174,
+        "target": 1,
+        "pred_prob": 0.0947,
+        "clicks_total": 233.0,
+        "active_days": 14,
+        "submission_rate_due": 1.0,
+        "mean_score": 100.0,
+        "days_since_last_click": 3
+      },
+      {
+        "code_module": "DDD",
+        "code_presentation": "2014J",
+        "id_student": 605070,
+        "target": 1,
+        "pred_prob": 0.0949,
+        "clicks_total": 1227.0,
+        "active_days": 36,
+        "submission_rate_due": 1.0,
+        "mean_score": 85.0,
+        "days_since_last_click": 0
+      },
+      {
+        "code_module": "BBB",
+        "code_presentation": "2014J",
+        "id_student": 654265,
+        "target": 1,
+        "pred_prob": 0.0952,
+        "clicks_total": 109.0,
+        "active_days": 9,
+        "submission_rate_due": 1.0,
+        "mean_score": 100.0,
+        "days_since_last_click": 5
+      },
+      {
+        "code_module": "BBB",
+        "code_presentation": "2014J",
+        "id_student": 590444,
+        "target": 1,
+        "pred_prob": 0.0952,
+        "clicks_total": 252.0,
+        "active_days": 20,
+        "submission_rate_due": 1.0,
+        "mean_score": 100.0,
+        "days_since_last_click": 7
+      },
+      {
+        "code_module": "CCC",
+        "code_presentation": "2014J",
+        "id_student": 46705,
+        "target": 1,
+        "pred_prob": 0.0955,
+        "clicks_total": 590.0,
+        "active_days": 28,
+        "submission_rate_due": 1.0,
+        "mean_score": 100.0,
+        "days_since_last_click": 2
+      }
+    ]
+  },
+  "fairness_summary_2014j": {
+    "csv_path": "fairness_test.csv",
+    "n_subgroups_evaluated": 18,
+    "n_low_sample_warnings": 0
+  },
+  "artifacts": {
+    "calibration_curve": "calibration_curve.png",
+    "cutoff_comparison_test_csv": "cutoff_comparison_test.csv",
+    "fairness_test_csv": "fairness_test.csv",
+    "champion_bundle": "artifacts/champion_locked.joblib (gitignored)"
+  },
+  "mlflow_tracking": {
+    "logged": true,
+    "tracking_uri": "sqlite:///mlflow.db (gitignored)",
+    "experiment": "oulad-early-warning-p1-b5",
+    "run_ids": {
+      "logistic_regression": "bac48ee8d75c4df0bc42bcf118bc6c95",
+      "lightgbm": "c09550a08259452cb0fa776f8d125009",
+      "tabular_mlp": "84b3e5c22eb04d09889289f76cb1a6ae",
+      "lightgbm_score_free": "effa5ec554e44258915e5d38855ba4df"
+    }
+  }
+}
