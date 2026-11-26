@@ -3,7 +3,7 @@
 ## 1. Model Details
 
 - **Model Name:** OULAD Day-28 Student Risk Early Warning — Locked Champion (`LightGBM`)
-- **Version:** Pre-release candidate *(target release tag `v1.0-rc` — tag will only be created after Live GitHub Actions CI passes; the historical `2014J` evaluation report was committed in the `P1-B5` commit `2c8bab8` and has remained unchanged in the subsequent Git history. The available repository evidence does not independently establish the exact number of local evaluation executions before that commit.)*
+- **Version:** `v1.0-rc` *(verified on Linux `x86_64` Python `3.11` CPU GitHub Actions CI; the historical `2014J` evaluation report was committed in the `P1-B5` commit `2c8bab8` and has remained unchanged in the subsequent Git history. The available repository evidence does not independently establish the exact number of local evaluation executions before that commit.)*
 - **Model Type:** Binary Gradient Boosted Decision Trees (`lightgbm.LGBMClassifier`, `subsample_freq=1`, deterministic `seed=42`), benchmarked against `LogisticRegression` (median impute + standard scale + one-hot) and a PyTorch `TabularMLP` (entity embeddings with `Unknown/Missing = 0`, LayerNorm, Dropout `0.2`, unweighted `BCEWithLogitsLoss`, trained on CPU).
 - **Prediction Horizon & Cohort:** Day `T = 28` (Start-of-Day, strictly `< 28` features), Operational Cohort (`date_registration < 28` and still enrolled at Day 28).
 - **Output:** Risk score in `[0, 1]` (`calibration_method = "uncalibrated"` per pre-specified OOF Brier selection rule on `val_calib`) and binary alert decision at locked operating threshold `tau* = 0.4279`.

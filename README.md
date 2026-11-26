@@ -1,5 +1,7 @@
 # OULAD Early Warning — Leakage-Free Student Risk Prediction
 
+[![OULAD CI](https://github.com/Fairy3425/oulad-early-warning/actions/workflows/ci.yml/badge.svg)](https://github.com/Fairy3425/oulad-early-warning/actions/workflows/ci.yml)
+
 An end-to-end, reproducible tabular ML & PyTorch deep learning pipeline built on the **Open University Learning Analytics Dataset (OULAD, UCI ID 349, CC BY 4.0)** to identify students at risk of **Fail or Withdrawn** by **Day 28 (Start of Day)** with strict temporal leakage controls, explicit out-of-fold (OOF) calibration auditing, subgroup performance evaluation, and synthetic-database CI.
 
 ---
@@ -61,7 +63,7 @@ pip install --no-deps --no-build-isolation -e .
 ```
 
 **Dependency & Lockfile Notes (`F-05`):**
-- **`requirements-cpu.lock` (Linux `x86_64` · Python `3.11` · CPU · GitHub Actions Target):** Pins 42 Linux `x86_64` CPU dependencies (`torch==2.15.0+cpu`, `duckdb==1.5.6`, `lightgbm==4.7.0`, `scikit-learn==1.9.1`, `shap==0.51.0`; `0` CUDA / `0` `@ file://` entries) compiled specifically for `--python-platform x86_64-unknown-linux-gnu --python-version 3.11` (this is a Linux CI target lockfile, not a universal cross-OS lockfile). The Linux `x86_64` / Python `3.11` CPU environment (including `duckdb==1.5.6`) was installed and tested successfully in GitHub Actions CI (`ruff` and the synthetic test suite passed in [OULAD CI run #45780126977](https://github.com/Fairy3425/oulad-early-warning/actions/runs/45780126977)).
+- **`requirements-cpu.lock` (Linux `x86_64` · Python `3.11` · CPU · GitHub Actions Target):** Pins 42 Linux `x86_64` CPU dependencies (`torch==2.15.0+cpu`, `duckdb==1.5.6`, `lightgbm==4.7.0`, `scikit-learn==1.9.1`, `shap==0.51.0`; `0` CUDA / `0` `@ file://` entries) compiled specifically for `--python-platform x86_64-unknown-linux-gnu --python-version 3.11` (this is a Linux CI target lockfile, not a universal cross-OS lockfile). The Linux `x86_64` / Python `3.11` CPU environment (including `duckdb==1.5.6`) is installed and verified automatically in [OULAD GitHub Actions CI](https://github.com/Fairy3425/oulad-early-warning/actions/workflows/ci.yml) (e.g., passing [run #45781213279](https://github.com/Fairy3425/oulad-early-warning/actions/runs/45781213279) and [run #45780126977](https://github.com/Fairy3425/oulad-early-warning/actions/runs/45780126977)).
 - **`requirements-local.lock` (Windows Workstation Snapshot — Non-Portable):** Captures the original Windows development `.venv` (including interactive notebook tooling, MLflow, and `duckdb==2.0.1`). All local SQL quality checks, anti-leakage tests, and model/CLI tests were verified on **DuckDB `2.0.1`**; `requirements-local.lock` is retained strictly for provenance, not as a cross-platform install target.
 - **MLflow (Optional):** `mlflow` is intentionally omitted from `requirements-cpu.lock` to keep CI fast and lightweight. `evaluate.py` logs to local `sqlite:///mlflow.db` (gitignored) when `mlflow` is installed (`pip install mlflow`) and degrades gracefully (`logged: false`) when absent.
 
