@@ -37,6 +37,17 @@
       "roc_auc": 0.7842,
       "brier_score": 0.188,
       "best_iteration": 218
+    },
+    "tabular_mlp": {
+      "n": 3905,
+      "n_pos": 1891,
+      "positive_rate": 0.4843,
+      "pr_auc": 0.7695,
+      "roc_auc": 0.7689,
+      "brier_score": 0.1955,
+      "best_epoch": 2,
+      "best_val_loss": 0.57402,
+      "device_used": "cpu"
     }
   },
   "returning_vs_new_val_select_t28": {
@@ -76,6 +87,25 @@
         "pr_auc": 0.7748,
         "roc_auc": 0.7778,
         "brier_score": 0.1895
+      }
+    },
+    "tabular_mlp": {
+      "returning_pct": 10.14,
+      "returning": {
+        "n": 396,
+        "n_pos": 243,
+        "positive_rate": 0.6136,
+        "pr_auc": 0.831,
+        "roc_auc": 0.7913,
+        "brier_score": 0.1773
+      },
+      "new": {
+        "n": 3509,
+        "n_pos": 1648,
+        "positive_rate": 0.4696,
+        "pr_auc": 0.7557,
+        "roc_auc": 0.7601,
+        "brier_score": 0.1976
       }
     }
   },
@@ -166,5 +196,23 @@
       "delta_roc_auc_vs_full": -0.0289,
       "note": "OULAD lacks date_graded; Score-Free provides a conservative lower bound when tutor-marked grading latency exceeds cutoff T=28."
     }
+  },
+  "tabular_mlp_training_info": {
+    "device_used": "cpu",
+    "best_epoch": 2,
+    "epochs_run": 7,
+    "best_val_loss": 0.57402,
+    "hidden_dims": [
+      128,
+      64
+    ],
+    "dropout": 0.2,
+    "norm_type": "layernorm",
+    "loss_function": "BCEWithLogitsLoss (unweighted \u2014 preserves base-rate prior per AUD-17)",
+    "optimizer": "AdamW(lr=1e-3, weight_decay=1e-4)",
+    "early_stopping_patience": 5,
+    "checkpoint_path": "artifacts/tabular_mlp_best.pt (gitignored)",
+    "learning_curve_path": "learning_curve.png",
+    "test_2014j_untouched": true
   }
 }

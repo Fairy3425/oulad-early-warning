@@ -3,7 +3,11 @@
 from collections.abc import Iterator
 
 import duckdb
+import numpy as np
+import pandas as pd
 import pytest
+
+from oulad.config import SEED
 
 
 def populate_clean_synthetic_db(con: duckdb.DuckDBPyConnection) -> None:
@@ -208,3 +212,64 @@ def leakage_db() -> Iterator[duckdb.DuckDBPyConnection]:
         yield con
     finally:
         con.close()
+
+
+@pytest.fixture
+def synthetic_feature_table() -> pd.DataFrame:
+    """Provide a deterministic synthetic feature table across 2013B, 2013J, 2014B, and 2014J."""
+    rng = np.random.default_rng(SEED)
+    rows: list[dict[str, object]] = []
+    presentations = [
+        ("2013B", 40, 1),
+        ("2013J", 40, 41),
+        ("2014B", 40, 61),
+        ("2014J", 30, 1001),
+    ]
+    for pres, count, start_id in presentations:
+        for i in range(count):
+            student_id = start_id + i
+            clicks = int(rng.integers(0, 120))
+            sub_rate = float(rng.uniform(0.0, 1.0))
+            mean_score = float(rng.uniform(25.0, 95.0)) if clicks > 10 else np.nan
+            risk_logit = 1.5 - 0.03 * clicks - 2.0 * sub_rate
+            target = int(risk_logit + rng.normal(0, 0.5) > 0)
+            rows.append(
+                {
+                    "code_module": "AAA" if i % 2 == 0 else "BBB",
+                    "code_presentation": pres,
+                    "id_student": student_id,
+                    "gender": "M" if i % 2 == 0 else "F",
+                    "region": "London Region" if i % 3 == 0 else "Scotland",
+                    "highest_education": "HE Qualification" if i % 2 == 0 else "A Level",
+                    "imd_band": "20-30%" if i % 2 == 0 else "70-80%",
+                    "age_band": "0-35",
+                    "num_of_prev_attempts": int(i % 3 == 0),
+                    "studied_credits": 60,
+                    "disability": "Y" if i % 5 == 0 else "N",
+                    "date_registration": -15,
+                    "has_any_vle_click": int(clicks > 0),
+                    "clicks_pre_course": 5,
+                    "clicks_total": clicks,
+                    "active_days": min(clicks, 14),
+                    "n_unique_sites": 3,
+                    "std_daily_clicks": 2.5,
+                    "first_click_day": -2 if clicks > 0 else np.nan,
+                    "last_click_day": 25 if clicks > 0 else np.nan,
+                    "days_since_last_click": 2 if clicks > 0 else np.nan,
+                    "clicks_w0": clicks // 4,
+                    "clicks_w1": clicks // 4,
+                    "clicks_w2": clicks // 4,
+                    "clicks_w3": clicks - 3 * (clicks // 4),
+                    "n_due_before_cutoff": 2,
+                    "n_submitted_due": int(round(sub_rate * 2)),
+                    "submission_rate_due": sub_rate,
+                    "n_submitted_early": 0,
+                    "n_banked": 0,
+                    "mean_score": mean_score,
+                    "has_score": int(not np.isnan(mean_score)),
+                    "mean_days_late": -1.0,
+                    "click_trend_ratio": 1.0,
+                    "target": target,
+                }
+            )
+    return pd.DataFrame(rows)
