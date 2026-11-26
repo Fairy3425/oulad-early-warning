@@ -1,0 +1,170 @@
+{
+  "split_protocol": {
+    "name": "Presentation-Based Forward Split (AUD-07)",
+    "calendar_overlap_disclosure": "2013J (Oct 2013-Jun 2014) overlaps ~4 months with 2014B (Feb 2014-Oct 2014). Train 2013 -> Locked Test 2014J (Oct 2014) has zero calendar overlap.",
+    "train_presentations": [
+      "2013B",
+      "2013J"
+    ],
+    "val_presentation": "2014B (60% val_select / 40% val_calib)",
+    "test_presentation_locked": "2014J",
+    "test_2014j_untouched": true,
+    "val_calib_untouched_in_p1_b3": true,
+    "seed": 42,
+    "primary_cutoff": 28,
+    "primary_cohort_mode": "operational",
+    "split_sizes_t28_operational": {
+      "train": 11806,
+      "val_select": 3905,
+      "val_calib": 2604,
+      "test_locked": 9213
+    }
+  },
+  "models_val_select_t28_operational": {
+    "logistic_regression": {
+      "n": 3905,
+      "n_pos": 1891,
+      "positive_rate": 0.4843,
+      "pr_auc": 0.7815,
+      "roc_auc": 0.7791,
+      "brier_score": 0.1911
+    },
+    "lightgbm": {
+      "n": 3905,
+      "n_pos": 1891,
+      "positive_rate": 0.4843,
+      "pr_auc": 0.7871,
+      "roc_auc": 0.7842,
+      "brier_score": 0.188,
+      "best_iteration": 218
+    }
+  },
+  "returning_vs_new_val_select_t28": {
+    "logistic_regression": {
+      "returning_pct": 10.14,
+      "returning": {
+        "n": 396,
+        "n_pos": 243,
+        "positive_rate": 0.6136,
+        "pr_auc": 0.8608,
+        "roc_auc": 0.812,
+        "brier_score": 0.1678
+      },
+      "new": {
+        "n": 3509,
+        "n_pos": 1648,
+        "positive_rate": 0.4696,
+        "pr_auc": 0.7658,
+        "roc_auc": 0.7699,
+        "brier_score": 0.1937
+      }
+    },
+    "lightgbm": {
+      "returning_pct": 10.14,
+      "returning": {
+        "n": 396,
+        "n_pos": 243,
+        "positive_rate": 0.6136,
+        "pr_auc": 0.8514,
+        "roc_auc": 0.7976,
+        "brier_score": 0.1748
+      },
+      "new": {
+        "n": 3509,
+        "n_pos": 1648,
+        "positive_rate": 0.4696,
+        "pr_auc": 0.7748,
+        "roc_auc": 0.7778,
+        "brier_score": 0.1895
+      }
+    }
+  },
+  "shap_val_select_t28_lightgbm": {
+    "n_samples": 2000,
+    "figure_path": "shap_summary.png",
+    "disclaimer": "SHAP values represent predictive attribution (what the model relied on), NOT causal drivers of dropout.",
+    "top_10_features": [
+      {
+        "feature": "mean_score",
+        "mean_abs_shap": 0.4685
+      },
+      {
+        "feature": "submission_rate_due",
+        "mean_abs_shap": 0.3488
+      },
+      {
+        "feature": "code_module",
+        "mean_abs_shap": 0.2673
+      },
+      {
+        "feature": "highest_education",
+        "mean_abs_shap": 0.2603
+      },
+      {
+        "feature": "mean_days_late",
+        "mean_abs_shap": 0.1905
+      },
+      {
+        "feature": "active_days",
+        "mean_abs_shap": 0.1348
+      },
+      {
+        "feature": "imd_band",
+        "mean_abs_shap": 0.1298
+      },
+      {
+        "feature": "clicks_w1",
+        "mean_abs_shap": 0.1104
+      },
+      {
+        "feature": "region",
+        "mean_abs_shap": 0.0902
+      },
+      {
+        "feature": "last_click_day",
+        "mean_abs_shap": 0.0817
+      }
+    ]
+  },
+  "sensitivity_checks_val_select_t28": {
+    "sensitive_demographic_ablation": {
+      "dropped_columns": [
+        "gender",
+        "disability",
+        "imd_band"
+      ],
+      "n_features": 34,
+      "lightgbm": {
+        "n": 3905,
+        "n_pos": 1891,
+        "positive_rate": 0.4843,
+        "pr_auc": 0.7829,
+        "roc_auc": 0.7827,
+        "brier_score": 0.1887,
+        "best_iteration": 155
+      },
+      "delta_pr_auc_vs_full": -0.0042,
+      "delta_roc_auc_vs_full": -0.0015,
+      "note": "Removing sensitive columns does not guarantee fairness due to proxy variables; subgroup fairness is evaluated directly in P1-B5."
+    },
+    "score_free_date_graded_check": {
+      "dropped_columns": [
+        "mean_score",
+        "has_score"
+      ],
+      "n_features": 35,
+      "lightgbm": {
+        "n": 3905,
+        "n_pos": 1891,
+        "positive_rate": 0.4843,
+        "pr_auc": 0.757,
+        "roc_auc": 0.7553,
+        "brier_score": 0.2001,
+        "best_iteration": 185
+      },
+      "delta_pr_auc_vs_full": -0.0301,
+      "delta_roc_auc_vs_full": -0.0289,
+      "note": "OULAD lacks date_graded; Score-Free provides a conservative lower bound when tutor-marked grading latency exceeds cutoff T=28."
+    }
+  }
+}

@@ -1,0 +1,13 @@
+mode,cutoff,model,n_train,n_val_select,n_features,positive_rate,pr_auc,roc_auc,brier_score,best_iteration
+operational,14,logistic_regression,12075,3993,35,0.4961,0.6874,0.7038,0.2217,
+operational,14,lightgbm,12075,3993,35,0.4961,0.7026,0.713,0.219,186.0
+operational,21,logistic_regression,12009,3948,36,0.4901,0.7601,0.7601,0.1991,
+operational,21,lightgbm,12009,3948,36,0.4901,0.7527,0.7575,0.2,231.0
+operational,28,logistic_regression,11806,3905,37,0.4843,0.7815,0.7791,0.1911,
+operational,28,lightgbm,11806,3905,37,0.4843,0.7871,0.7842,0.188,218.0
+common,14,logistic_regression,11797,3901,35,0.4842,0.678,0.7017,0.2217,
+common,14,lightgbm,11797,3901,35,0.4842,0.6856,0.707,0.2202,128.0
+common,21,logistic_regression,11797,3901,36,0.4842,0.7539,0.7603,0.1988,
+common,21,lightgbm,11797,3901,36,0.4842,0.7394,0.7542,0.2014,209.0
+common,28,logistic_regression,11797,3901,37,0.4842,0.7873,0.7878,0.1877,
+common,28,lightgbm,11797,3901,37,0.4842,0.7925,0.7937,0.1844,158.0
