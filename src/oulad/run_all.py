@@ -1,11 +1,16 @@
 """Reproducible end-to-end pipeline entrypoint for OULAD Early Warning (P1-B6).
 
-Safe-by-default design (AUD-B6-02 & AUD-B6-03):
-- By default (`--skip-download` or `--skip-download --skip-locked-test`), runs Stages 1-4 plus
-  Phase A champion locking (`artifacts/champion_locked.joblib`) strictly on 2013 + 2014B,
-  WITHOUT calling `run_p1_b5_locked_evaluation_suite` or touching locked test `2014J`.
-- Re-running Stage 5 (`2014J` locked test evaluation) requires explicit opt-in via
-  `--include-locked-test` to prevent accidental overwrites of frozen historical reports.
+Safe-by-default design (AUD-B6-02, AUD-B6-03, AUD-B6-05 & AUD-B6-06):
+- By default (`--skip-download` or `--skip-download --skip-locked-test`):
+  * Stages 1-2 ingest all raw OULAD CSVs (including 2014J) into DuckDB/Parquets for schema
+    checks and row-wise feature export (top-5 VLE activities are strictly Train-only 2013B+2013J).
+  * Stages 3-4b train/select models, run 5-fold OOF calibration, and lock
+    `artifacts/champion_locked.joblib` strictly on 2013 + 2014B.
+  * `run_p1_b5_locked_evaluation_suite` is unreachable and 2014J is NEVER used for training,
+    feature selection, calibration, threshold selection, or evaluation.
+- `--include-locked-test` runs a POST-HOC HISTORICAL REPRODUCTION of the already-unlocked 2014J
+  evaluation. It is NOT a new blind test and must NOT be used to select or tune models while
+  claiming 2014J is an independent holdout.
 
 Usage:
     # Safe fresh-clone workflow (rebuilds DB, Parquets, Val models & champion_locked.joblib):
@@ -14,7 +19,7 @@ Usage:
     # Dry-run input & stage validation:
     python -m oulad.run_all --skip-download --dry-run
 
-    # Explicit opt-in full historical reproduction (includes 2014J):
+    # Explicit opt-in post-hoc historical reproduction (NOT a new blind test):
     python -m oulad.run_all --skip-download --include-locked-test
 """
 
@@ -188,7 +193,7 @@ def run_pipeline(
         }
     )
 
-    print("[Stage 4] Training PyTorch TabularMLP on val_select (2014J untouched)...", flush=True)
+    print("[Stage 4] Training PyTorch TabularMLP on val_select (2014J excluded)...", flush=True)
     metrics_val_full = run_p1_b4_torch_suite(
         processed_dir=processed_dir,
         reports_dir=reports_dir,
@@ -210,7 +215,10 @@ def run_pipeline(
 
     locked_report: dict[str, Any] | None = None
     if run_locked_2014j:
-        print("[Stage 4b-5] Running Phase A lock + EXPLICIT 2014J evaluation...", flush=True)
+        print(
+            "[Stage 4b-5] Running Phase A lock + POST-HOC historical 2014J reproduction...",
+            flush=True,
+        )
         locked_report = run_p1_b5_locked_evaluation_suite(
             processed_dir=processed_dir,
             reports_dir=reports_dir,
@@ -227,7 +235,7 @@ def run_pipeline(
     else:
         print(
             "[Stage 4b] Phase A OOF calibration & champion lock strictly on 2013+2014B "
-            "(2014J SKIPPED)...",
+            "(2014J evaluation SKIPPED)...",
             flush=True,
         )
         phase_a = fit_and_lock_phase_a_champion(
@@ -246,7 +254,7 @@ def run_pipeline(
                 "calibration_method": phase_a["champion_cal"].chosen_method,
                 "locked_threshold": champ_tau,
                 "champion_bundle_exists": bundle_path.is_file(),
-                "locked_test_2014j_accessed": False,
+                "locked_test_2014j_evaluated": False,
             }
         )
 
@@ -260,7 +268,13 @@ def run_pipeline(
         "champion_bundle_path": str(bundle_path),
         "champion_bundle_exists": bundle_path.is_file(),
         "locked_test_executed": locked_report is not None,
-        "locked_test_2014j_accessed": locked_report is not None,
+        "locked_test_2014j_evaluated": locked_report is not None,
+        "data_boundary_note": (
+            "Stages 1-2 ingest raw OULAD CSVs (incl. 2014J) into DuckDB/Parquets for schema "
+            "checks & row-wise feature export (top-5 VLE activities are Train-only 2013B+2013J). "
+            "Stages 3-4b strictly exclude 2014J from training, feature selection, calibration, "
+            "threshold selection, and evaluation."
+        ),
     }
 
 
@@ -289,8 +303,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--include-locked-test",
         action="store_true",
         help=(
-            "Explicitly opt in to Stage 5 (2014J locked test evaluation). Do NOT use if you "
-            "want to preserve frozen historical reports/metrics_test_locked.json."
+            "Explicitly opt in to a post-hoc historical reproduction of the already-unlocked "
+            "2014J evaluation (Stage 5). This is NOT a new blind test; its output must NOT be "
+            "used to select or tune models while claiming 2014J is an independent holdout."
         ),
     )
     parser.add_argument(

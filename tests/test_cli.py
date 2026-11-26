@@ -14,8 +14,8 @@ from oulad.evaluate import LGBMSklearnWrapper
 from oulad.features import split_feature_target
 from oulad.predict import build_illustrative_sample_profiles, predict_from_bundle
 from oulad.predict import main as predict_main
+from oulad.run_all import build_arg_parser, run_stage_db_and_features
 from oulad.run_all import main as run_all_main
-from oulad.run_all import run_stage_db_and_features
 from oulad.split import presentation_forward_split
 
 
@@ -142,3 +142,11 @@ def test_run_all_rejects_conflicting_locked_test_flags(tmp_path: Path) -> None:
                 str(tmp_path),
             ]
         )
+
+
+def test_run_all_help_documents_post_hoc_historical_reproduction_warning() -> None:
+    """AUD-B6-06: CLI help must clearly warn --include-locked-test is not a new blind test."""
+    help_text = " ".join(build_arg_parser().format_help().lower().split())
+    assert "post-hoc historical reproduction" in help_text
+    assert "not a new blind test" in help_text
+    assert "independent holdout" in help_text

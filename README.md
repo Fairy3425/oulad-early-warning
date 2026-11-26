@@ -60,7 +60,7 @@ pip install --no-deps --no-build-isolation -e .
 ```
 *(Platform lockfiles: `requirements-cpu.lock` pins CPU-only PyTorch wheels with 0 CUDA / 0 `@ file://` entries for CI; `requirements-local.lock` captures the local Windows workstation environment.)*
 
-### Fresh-Clone Demo Workflow (Safe Default — Does NOT Re-Unlock `2014J`)
+### Fresh-Clone Demo Workflow (Safe Default — Skips Locked `2014J` Evaluation)
 Model binaries (`artifacts/champion_locked.joblib`) and raw OULAD CSVs (`data/raw/`) are intentionally **gitignored** to keep the repository lightweight and compliant with dataset redistribution practices. After cloning the repository:
 
 ```bash
@@ -69,17 +69,24 @@ Model binaries (`artifacts/champion_locked.joblib`) and raw OULAD CSVs (`data/ra
 python -m oulad.run_all --skip-download --dry-run
 
 # 3. Build DuckDB, 6 Parquets, validation models & artifacts/champion_locked.joblib
-#    strictly on 2013 + 2014B (does NOT evaluate 2014J or overwrite locked test reports):
+#    (Stage 5 locked-test evaluation is skipped; run_p1_b5_locked_evaluation_suite is unreachable):
 python -m oulad.run_all --skip-download --skip-locked-test
 
 # 4. Run the locked-champion CLI demo with non-causal Top-5 SHAP drivers:
 python -m oulad.predict --sample
 ```
 
-*(Note: Running `python -m oulad.predict --sample` on a fresh clone before Step 3 raises a clear `FileNotFoundError` pointing to the safe Step 3 command above. To run Step 3 without overwriting committed `reports/`, pass `--reports-dir <tmp_dir> --figures-dir <tmp_dir>`.)*
+- **Exact `2014J` Data-Access Boundary (`AUD-B6-05`):** During Stages 1–2, all raw OULAD CSVs (including `2014J`) are ingested into DuckDB for schema quality checks and row-wise Start-of-Day feature Parquet export (while top-5 VLE activity selection is strictly Train-only `2013B+2013J`, and `cohort_summary.json` logs only aggregate all-presentation cohort stats). During Stages 3–4b (`--skip-locked-test`, the default), `2014J` is **strictly excluded** from model training, feature selection, calibration, threshold selection, hyperparameter tuning, model selection, and evaluation, and `run_p1_b5_locked_evaluation_suite()` is unreachable.
+- Running `python -m oulad.predict --sample` on a fresh clone before Step 3 raises a clear `FileNotFoundError` pointing to the safe Step 3 command above. To run Step 3 without overwriting committed `reports/`, pass `--reports-dir <tmp_dir> --figures-dir <tmp_dir>`.
 
-### Full Historical Reproduction Workflow (Explicit Opt-In for `2014J`)
-To prevent accidental re-execution of the locked test set (`FA-02`), Stage 5 (`2014J` evaluation) is **disabled by default** in `run_all.py` and requires an explicit opt-in flag (recommended into an isolated output directory to preserve historical `reports/`):
+### Post-Hoc Historical Reproduction Workflow (Explicit Opt-In `--include-locked-test`)
+> **Important Scientific Integrity Warning (`AUD-B6-06`):**
+> - **Default execution skips the locked test** (`include_locked_test = False`).
+> - Passing `--include-locked-test` executes a **post-hoc historical reproduction** of the already-unlocked `2014J` evaluation (originally locked and evaluated once at commit `8937857`).
+> - **This is NOT a new blind test.**
+> - Its output **must NOT be used to select, compare, or tune models, features, calibrators, or thresholds** while continuing to claim `2014J` is an independent holdout.
+
+To reproduce historical `2014J` outputs into an isolated directory without modifying committed `reports/`:
 
 ```bash
 python -m oulad.run_all --skip-download --include-locked-test --reports-dir ./tmp_repro/reports --figures-dir ./tmp_repro/figures
@@ -100,7 +107,7 @@ Test suites cover:
 - `tests/test_split_and_baselines.py` (6 tests): forward split invariants, `subsample_freq=1`, unseen categories, `2014J` mutation isolation.
 - `tests/test_models.py` (4 tests): PyTorch `TabularMLP` `Unknown/Missing -> 0`, raw logits, gradient step, checkpoint roundtrip & `2014J` isolation.
 - `tests/test_metrics.py` (13 tests): `n_calib < 1000` isotonic guard, `FrozenEstimator` 5-fold disjoint OOF audit & final refit, `RuntimeError` integrity guards (survive `python -O`), `2014J` calibration/threshold isolation, `max_f1` fallback, `AUD-B5-01` cost-ratio disclaimer, `min(20, len)` FP/FN, Fairness `low_sample_warning`.
-- `tests/test_cli.py` (4 tests): `predict --sample` SHAP contract, missing-bundle clean-workspace error check, safe default `run_all` (`2014J` skipped), conflicting-flag rejection, and isolated Stage 1–2 execution.
+- `tests/test_cli.py` (5 tests): `predict --sample` SHAP contract, missing-bundle clean-workspace error check, safe default `run_all` (`2014J` skipped), conflicting-flag rejection, post-hoc `--include-locked-test` help warning, and isolated Stage 1–2 execution.
 
 ## 8. Verified Empirical Results (100% Traceable to `reports/`)
 
