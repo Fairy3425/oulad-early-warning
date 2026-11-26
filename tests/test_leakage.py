@@ -1,5 +1,7 @@
 """Parameterized anti-leakage tests across cutoffs [14, 21, 28] and both cohort modes (P1-B2)."""
 
+from unittest.mock import patch
+
 import duckdb
 import pandas as pd
 import pytest
@@ -170,3 +172,39 @@ def test_top_activities_strictly_train_only(leakage_db: duckdb.DuckDBPyConnectio
     leakage_db.execute("INSERT INTO studentVle VALUES ('BBB', '2014J', 2, 7, 5, 999999)")
     top_after = get_top_activities(leakage_db, feature_cutoff=28)
     assert top_before == top_after
+
+
+def test_runtime_guard_catches_registration_leakage_under_optimization_mode(
+    leakage_db: duckdb.DuckDBPyConnection,
+) -> None:
+    """F-06: build_features must raise RuntimeError (survives python -O) on reg >= cutoff."""
+    # Bypass SQL WHERE clause to verify post-query RuntimeError guard catches late registrant (16)
+    with patch(
+        "oulad.features._cohort_where_clause",
+        return_value="sr.date_registration IS NOT NULL",
+    ):
+        with pytest.raises(RuntimeError, match="Temporal leakage"):
+            build_features(leakage_db, feature_cutoff=14, mode="operational")
+
+
+@pytest.mark.parametrize("cutoff", [21, 28])
+def test_runtime_guard_catches_common_cohort_registration_ge_14_under_optimization_mode(
+    leakage_db: duckdb.DuckDBPyConnection,
+    cutoff: int,
+) -> None:
+    """Common mode must enforce date_registration < 14 post-query even at cutoffs 21 and 28."""
+    # Inject exact boundary date_registration = 14 (valid in op T=21/28, illegal in common)
+    leakage_db.execute(
+        "INSERT INTO studentInfo VALUES ('AAA', '2014B', 999, 'F', 'London Region', "
+        "'HE Qualification', '20-30%', '0-35', 0, 60, 'N', 'Pass')"
+    )
+    leakage_db.execute(
+        "INSERT INTO studentRegistration VALUES ('AAA', '2014B', 999, 14, NULL)"
+    )
+    # Bypass SQL cohort WHERE clause so the post-query RuntimeError guard is exercised directly
+    with patch(
+        "oulad.features._cohort_where_clause",
+        return_value="sr.date_registration IS NOT NULL",
+    ):
+        with pytest.raises(RuntimeError, match=r"date_registration >= 14.*mode=common"):
+            build_features(leakage_db, feature_cutoff=cutoff, mode="common")

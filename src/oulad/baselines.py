@@ -314,10 +314,8 @@ def _train_and_eval_pair(
     seed: int = SEED,
 ) -> dict[str, Any]:
     """Train LogReg & LightGBM strictly on split.train and evaluate strictly on split.val_select."""
-    # Hard safety guard: never allow 2014J inside train or val_select
+    # Single source of truth (raises RuntimeError, survives python -O): block 2014J
     split.assert_invariants()
-    assert TEST_PRESENTATION not in set(split.train["code_presentation"])
-    assert TEST_PRESENTATION not in set(split.val_select["code_presentation"])
 
     X_train, y_train = split_feature_target(split.train)
     X_val, y_val = split_feature_target(split.val_select)

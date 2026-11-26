@@ -37,28 +37,31 @@ class SplitData:
     test_locked: pd.DataFrame
 
     def assert_invariants(self) -> None:
-        """Verify 2014J isolation and disjointness between val_select and val_calib."""
+        """Verify 2014J isolation and disjointness between val_select and val_calib.
+
+        Raises explicit RuntimeError so all data-boundary guards survive `python -O`.
+        """
         for name, frame in (
             ("train", self.train),
             ("val_select", self.val_select),
             ("val_calib", self.val_calib),
         ):
             if TEST_PRESENTATION in set(frame["code_presentation"]):
-                raise AssertionError(
+                raise RuntimeError(
                     f"Locked test presentation {TEST_PRESENTATION} leaked into {name}!"
                 )
 
         if not set(self.train["code_presentation"]).issubset(set(TRAIN_PRESENTATIONS)):
-            raise AssertionError("train contains non-training presentations")
+            raise RuntimeError("train contains non-training presentations")
 
         for name, frame in (("val_select", self.val_select), ("val_calib", self.val_calib)):
             if len(frame) > 0 and set(frame["code_presentation"]) != {VAL_PRESENTATION}:
-                raise AssertionError(f"{name} must contain only {VAL_PRESENTATION}")
+                raise RuntimeError(f"{name} must contain only {VAL_PRESENTATION}")
 
         if len(self.test_locked) > 0 and set(self.test_locked["code_presentation"]) != {
             TEST_PRESENTATION
         }:
-            raise AssertionError(f"test_locked must contain only {TEST_PRESENTATION}")
+            raise RuntimeError(f"test_locked must contain only {TEST_PRESENTATION}")
 
         sel_keys = set(
             zip(
@@ -76,7 +79,7 @@ class SplitData:
         )
         overlap = sel_keys & cal_keys
         if overlap:
-            raise AssertionError(f"val_select and val_calib overlap on {len(overlap)} rows")
+            raise RuntimeError(f"val_select and val_calib overlap on {len(overlap)} rows")
 
 
 def presentation_forward_split(

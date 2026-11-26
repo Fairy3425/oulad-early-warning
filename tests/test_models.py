@@ -1,19 +1,22 @@
 """Fast offline CPU contract tests for PyTorch TabularMLP and TabularPreprocessor (P1-B4)."""
 
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
+import pytest
 import torch
 from torch import nn
 
 from oulad.config import SEED, TEST_PRESENTATION
 from oulad.features import split_feature_target
-from oulad.split import presentation_forward_split
+from oulad.split import SplitData, presentation_forward_split
 from oulad.torch_models import OULADDataset, TabularMLP, TabularPreprocessor
 from oulad.train_torch import (
     load_torch_checkpoint,
     predict_torch_proba,
+    run_p1_b4_torch_suite,
     save_torch_checkpoint,
     train_tabular_mlp,
 )
@@ -150,3 +153,33 @@ def test_train_checkpoint_roundtrip_and_2014j_isolation(
     loaded_model, loaded_prep = load_torch_checkpoint(ckpt, device=torch.device("cpu"))
     p_loaded = predict_torch_proba(loaded_model, loaded_prep, X_va1)
     np.testing.assert_allclose(p1, p_loaded, rtol=0.0, atol=0.0)
+
+
+def test_runtime_guard_blocks_2014j_in_train_torch_under_optimization_mode(
+    synthetic_feature_table: pd.DataFrame,
+    tmp_path: Path,
+) -> None:
+    """F-06: run_p1_b4_torch_suite must reject 2014J in train/val even under python -O."""
+    proc_dir = tmp_path / "processed"
+    proc_dir.mkdir(parents=True, exist_ok=True)
+    synthetic_feature_table.to_parquet(proc_dir / "features_op_c28.parquet", index=False)
+
+    good_split = presentation_forward_split(synthetic_feature_table, seed=SEED)
+    bad_train = pd.concat([good_split.train, good_split.test_locked.iloc[:2]], ignore_index=True)
+    bad_split = SplitData(
+        train=bad_train,
+        val_select=good_split.val_select,
+        val_calib=good_split.val_calib,
+        test_locked=good_split.test_locked,
+    )
+
+    with patch("oulad.train_torch.presentation_forward_split", return_value=bad_split):
+        with pytest.raises(RuntimeError, match="2014J"):
+            run_p1_b4_torch_suite(
+                processed_dir=proc_dir,
+                reports_dir=tmp_path / "reports",
+                figures_dir=tmp_path / "figures",
+                artifacts_dir=tmp_path / "artifacts",
+                seed=SEED,
+                prefer_cuda=False,
+            )

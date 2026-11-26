@@ -22,7 +22,7 @@ flowchart LR
     SPLIT --> MODELS["Train & Select on val_select<br/>LogReg · LightGBM · PyTorch TabularMLP"]
     MODELS --> CAL["5-Fold OOF Calibration & tau*<br/>FrozenEstimator strictly on val_calib"]
     CAL --> LOCK["LOCK Champion & Artifacts<br/>champion_locked.joblib"]
-    LOCK --> TEST["SINGLE Read-Only Unlock: 2014J<br/>Metrics · Cutoffs · Sensitivity · Fairness"]
+    LOCK --> TEST["Historical Locked Test: 2014J<br/>Metrics · Cutoffs · Sensitivity · Fairness"]
     LOCK --> CLI["CLI Demo<br/>python -m oulad.predict --sample"]
 ```
 
@@ -38,27 +38,32 @@ flowchart LR
 
 1. **Start-of-Day Cohorts (`AUD-01`):**
    - **Operational Cohort (Primary):** `date_registration < T` AND `(date_unregistration IS NULL OR date_unregistration >= T)` (`T=14: 28,062`, `T=21: 27,880`, `T=28: 27,528`).
-   - **Safe Common Cohort (Controlled Horizon Comparison):** `date_registration < 14` AND still enrolled at `T=28` (`27,491` enrollments across all 3 cutoffs).
-2. **Leakage-Safe Feature Bounds (`AUD-02`):** Strictly `< T` for all VLE clicks and assessments (`submission_rate_due ∈ [0, 1]` using only assessments due `< T` and submitted `< T`; top-5 VLE activity types derived strictly from Train presentations `2013B+2013J`). Verified by **26 parameterized anti-leakage tests** (`test_leakage.py`) including future-event and post-outcome mutation invariance.
+   - **Safe Common Cohort (Controlled Retrospective Sensitivity):** `date_registration < 14` AND still enrolled at `T=28` (`27,491` enrollments across all 3 cutoffs).
+     - *Mandatory Caveat (`AUD-01`):* The Safe Common Cohort is defined retrospectively by requiring learners to remain enrolled through day 28. Therefore, it is suitable for controlled retrospective cohort comparison (isolating the value of Week 3–4 signals on a fixed population), but it does **not** represent the population or operational performance available at day 14.
+2. **Leakage-Safe Feature Bounds (`AUD-02`):** Strictly `< T` for all VLE clicks and assessments (`submission_rate_due ∈ [0, 1]` using only assessments due `< T` and submitted `< T`; top-5 VLE activity types derived strictly from Train presentations `2013B+2013J`). Verified by **29 anti-leakage tests** (`test_leakage.py`, including 24 parameterized `[14, 21, 28] × {operational, common}` checks, boundary/train-only tests, and `python -O` operational & Common Cohort runtime guard tests).
 3. **Presentation-Based Forward Split (`AUD-07`):**
    - `train`: `2013B + 2013J` (`n = 11,806` at `T=28 Operational`)
    - `val_select`: `60%` stratified of `2014B` (`n = 3,905`) — model & hyperparameter selection, early stopping, SHAP
    - `val_calib`: `40%` stratified of `2014B` (`n = 2,604`, `pos_rate = 48.43%`) — explicit 5-fold OOF calibration & threshold selection
-   - `test_locked`: `2014J` (`n = 9,213`, `pos_rate = 40.79%`) — unlocked **once, read-only** after locking all models (`post_unlock_model_edits = 0`).
+   - `test_locked`: `2014J` (`n = 9,213`, `pos_rate = 40.79%`) — held out from training, selection, calibration, and thresholding. The historical `2014J` evaluation report was committed in the `P1-B5` commit `2c8bab8` and has remained unchanged in the subsequent Git history. The available repository evidence does not independently establish the exact number of local evaluation executions before that commit.
    - *Calendar Overlap Disclosure:* `2013J` (Oct 2013–Jun 2014) overlaps ~4 months with `2014B` (Feb–Oct 2014), whereas `2013 → 2014J` (Oct 2014) has zero calendar overlap.
 4. **Explicit 5-Fold OOF Calibration (`AUD-08`, `FA-02`):** Runs an explicit `StratifiedKFold(5)` loop with `CalibratedClassifierCV(estimator=FrozenEstimator(base_model))` (scikit-learn ≥ 1.6), enforces a hard guard blocking `isotonic` when `n_calib < 1000` or `min_fold_train < 800`, picks operating threshold `tau*` (`Precision >= 0.70`, `n_pred >= 30`, with deterministic `max_f1` fallback) on **OOF** probabilities, and fits the final calibrator on full `val_calib` before locking.
 
 ## 6. How to Run
 
-### Environment Setup (CPU-Locked Reproducible Environment)
+### Environment Setup (Linux `x86_64` · Python `3.11` · CPU — GitHub Actions CI Target)
 ```bash
-python -m venv .venv
-# Windows PowerShell: .\.venv\Scripts\Activate.ps1
-# Linux/macOS: source .venv/bin/activate
+# Target environment: Linux x86_64, Python 3.11, CPU-only (GitHub Actions CI target)
+python3.11 -m venv .venv
+source .venv/bin/activate
 pip install --index-url https://pypi.org/simple --extra-index-url https://download.pytorch.org/whl/cpu -r requirements-cpu.lock
 pip install --no-deps --no-build-isolation -e .
 ```
-*(Platform lockfiles: `requirements-cpu.lock` pins CPU-only PyTorch wheels with 0 CUDA / 0 `@ file://` entries for CI; `requirements-local.lock` captures the local Windows workstation environment.)*
+
+**Dependency & Lockfile Notes (`F-05`):**
+- **`requirements-cpu.lock` (Linux `x86_64` · Python `3.11` · CPU · GitHub Actions Target):** Pins 42 Linux `x86_64` CPU dependencies (`torch==2.15.0+cpu`, `duckdb==1.5.6`, `lightgbm==4.7.0`, `scikit-learn==1.9.1`, `shap==0.51.0`; `0` CUDA / `0` `@ file://` entries) compiled specifically for `--python-platform x86_64-unknown-linux-gnu --python-version 3.11` (this is a Linux CI target lockfile, not a universal cross-OS lockfile). Compatibility of this pinned CPU environment (`duckdb==1.5.6`) remains **pending Live GitHub Actions verification**.
+- **`requirements-local.lock` (Windows Workstation Snapshot — Non-Portable):** Captures the original Windows development `.venv` (including interactive notebook tooling, MLflow, and `duckdb==2.0.1`). All local SQL quality checks, anti-leakage tests, and model/CLI tests were verified on **DuckDB `2.0.1`**; `requirements-local.lock` is retained strictly for provenance, not as a cross-platform install target.
+- **MLflow (Optional):** `mlflow` is intentionally omitted from `requirements-cpu.lock` to keep CI fast and lightweight. `evaluate.py` logs to local `sqlite:///mlflow.db` (gitignored) when `mlflow` is installed (`pip install mlflow`) and degrades gracefully (`logged: false`) when absent.
 
 ### Fresh-Clone Demo Workflow (Safe Default — Skips Locked `2014J` Evaluation)
 Model binaries (`artifacts/champion_locked.joblib`) and raw OULAD CSVs (`data/raw/`) are intentionally **gitignored** to keep the repository lightweight and compliant with dataset redistribution practices. After cloning the repository:
@@ -82,7 +87,7 @@ python -m oulad.predict --sample
 ### Post-Hoc Historical Reproduction Workflow (Explicit Opt-In `--include-locked-test`)
 > **Important Scientific Integrity Warning (`AUD-B6-06`):**
 > - **Default execution skips the locked test** (`include_locked_test = False`).
-> - Passing `--include-locked-test` executes a **post-hoc historical reproduction** of the already-unlocked `2014J` evaluation (originally locked and evaluated once at commit `8937857`).
+> - Passing `--include-locked-test` executes a **post-hoc historical reproduction** of the `2014J` evaluation. The historical `2014J` evaluation report was committed in the `P1-B5` commit `2c8bab8` and has remained unchanged in the subsequent Git history. The available repository evidence does not independently establish the exact number of local evaluation executions before that commit.
 > - **This is NOT a new blind test.**
 > - Its output **must NOT be used to select, compare, or tune models, features, calibrators, or thresholds** while continuing to claim `2014J` is an independent holdout.
 
@@ -103,11 +108,11 @@ pytest -v
 
 Test suites cover:
 - `tests/test_quality.py` (13 tests): 9 SQL data quality checks, `nullstr='?'` parsing, Returning/New overlap.
-- `tests/test_leakage.py` (26 tests): parameterized `[14, 21, 28]` × `{operational, common}` future-event invariance, post-outcome invariance, registration/week bounds, `submission_rate_due ∈ [0, 1]`, train-only top activities.
-- `tests/test_split_and_baselines.py` (6 tests): forward split invariants, `subsample_freq=1`, unseen categories, `2014J` mutation isolation.
-- `tests/test_models.py` (4 tests): PyTorch `TabularMLP` `Unknown/Missing -> 0`, raw logits, gradient step, checkpoint roundtrip & `2014J` isolation.
+- `tests/test_leakage.py` (29 tests): parameterized `[14, 21, 28]` × `{operational, common}` future-event invariance, post-outcome invariance, registration/week bounds, `submission_rate_due ∈ [0, 1]`, train-only top activities, and `-O`-safe `RuntimeError` operational & Common Cohort (`date_registration < 14`) guards.
+- `tests/test_split_and_baselines.py` (10 tests): forward split invariants, `subsample_freq=1`, unseen categories, `2014J` mutation isolation, and exact `-O`-safe `RuntimeError` `2014J` guards across `SplitData.assert_invariants` and baselines.
+- `tests/test_models.py` (5 tests): PyTorch `TabularMLP` `Unknown/Missing -> 0`, raw logits, gradient step, checkpoint roundtrip, `2014J` isolation, and exact `-O`-safe `RuntimeError` `2014J` guard.
 - `tests/test_metrics.py` (13 tests): `n_calib < 1000` isotonic guard, `FrozenEstimator` 5-fold disjoint OOF audit & final refit, `RuntimeError` integrity guards (survive `python -O`), `2014J` calibration/threshold isolation, `max_f1` fallback, `AUD-B5-01` cost-ratio disclaimer, `min(20, len)` FP/FN, Fairness `low_sample_warning`.
-- `tests/test_cli.py` (5 tests): `predict --sample` SHAP contract, missing-bundle clean-workspace error check, safe default `run_all` (`2014J` skipped), conflicting-flag rejection, post-hoc `--include-locked-test` help warning, and isolated Stage 1–2 execution.
+- `tests/test_cli.py` (16 tests): `predict --sample` SHAP contract, missing-column rejection, extra-column handling, SHA-256 artifact-fingerprint ECE verification (exact match, cross-model rejection, threshold/order change rejection, missing/malformed fingerprint rejection), missing-bundle clean-workspace error check, safe default `run_all` (`2014J` skipped), conflicting-flag rejection, post-hoc `--include-locked-test` help warning, and isolated Stage 1–2 execution.
 
 ## 8. Verified Empirical Results (100% Traceable to `reports/`)
 
@@ -161,6 +166,58 @@ Test suites cover:
 - Validate **Score-Free vs Full feature sets** and **season-matched recalibration** (`B→B`, `J→J`) on a **fresh, unused holdout cohort** (never re-tuning on `2014J`).
 - Add **bootstrap 95% confidence intervals** for locked metrics and subgroup Recall/FPR gaps, plus **PSI drift monitoring** across incoming terms.
 - Explore sequence models (`WeeklyClickGRU`) over daily/weekly VLE trajectories on a separate experimental branch after Release Candidate freeze.
+
+## 11. Repository Structure
+
+```text
+oulad-early-warning/
+├── .github/workflows/ci.yml                # GitHub Actions CI (ruff + pytest on requirements-cpu.lock)
+├── .gitignore                              # Excludes data/, *.duckdb, artifacts/, mlflow.db, .venv/, .env
+├── pyproject.toml                          # src/ package layout, pytest pythonpath, ruff lint config
+├── requirements-cpu.in                     # Direct CPU dependencies for Linux x86_64 Python 3.11 CI
+├── requirements-cpu.lock                   # Locked Linux x86_64 Python 3.11 CPU deps (0 CUDA, 0 @ file://)
+├── requirements-local.lock                 # Windows workstation provenance snapshot (non-portable)
+├── README.md                               # Project documentation & verified empirical summary
+├── MODEL_CARD.md                           # Intended/prohibited use, calibration, fairness & risk audit
+├── notebooks/
+│   ├── 01_duckdb_quality_and_overlap.ipynb
+│   ├── 02_features_leakage_and_cutoffs.ipynb
+│   ├── 03_modeling_and_shap.ipynb
+│   ├── 04_tabular_mlp_and_ci.ipynb
+│   └── 05_calibration_locked_test_and_fairness.ipynb
+├── reports/
+│   ├── data_quality.json                   # 9 SQL data quality checks & Returning/New overlap
+│   ├── cohort_summary.json                 # Row/feature counts across 6 cutoff Parquets
+│   ├── cutoff_comparison_val.csv           # 12 models (14/21/28 x Op/Common) on val_select
+│   ├── cutoff_comparison_test.csv          # Frozen historical 2014J report for 12 locked models (2c8bab8)
+│   ├── metrics_val.json                    # 3 models + SHAP + sensitivity checks on val_select
+│   ├── metrics_test_locked.json            # Frozen historical 2014J evaluation report (unchanged since 2c8bab8)
+│   ├── fairness_test.csv                   # 18-subgroup performance audit on 2014J
+│   └── figures/
+│       ├── shap_summary.png
+│       ├── learning_curve.png
+│       └── calibration_curve.png
+├── src/oulad/
+│   ├── __init__.py
+│   ├── config.py                           # Paths, constants, seed=42, split & cutoff contracts
+│   ├── db.py                               # DuckDB ingestion, 9 SQL checks, Returning/New overlap
+│   ├── features.py                         # Start-of-Day cohorts & leakage-free SQL features
+│   ├── split.py                            # Presentation-Based Forward Split & invariant checks
+│   ├── baselines.py                        # Logistic Regression, LightGBM, SHAP & sensitivity
+│   ├── torch_models.py                     # TabularPreprocessor (Unknown=0), OULADDataset, TabularMLP
+│   ├── train_torch.py                      # Auto CPU/GPU training, checkpointing & learning curve
+│   ├── evaluate.py                         # 5-fold OOF calibration, threshold lock, 2014J & fairness
+│   ├── run_all.py                          # Safe-by-default reproducible pipeline CLI
+│   └── predict.py                          # Locked-champion sample inference CLI with Top-5 SHAP
+└── tests/
+    ├── conftest.py                         # Offline synthetic DuckDB & feature table fixtures
+    ├── test_quality.py                     # 9 SQL checks, nullstr='?' & Returning/New tests
+    ├── test_leakage.py                     # Parameterized [14,21,28] x {Op,Common} leakage proofs
+    ├── test_split_and_baselines.py         # Split invariants, LightGBM bagging & 2014J isolation
+    ├── test_models.py                      # TabularMLP Unknown=0, logits, grad step & checkpoint
+    ├── test_metrics.py                     # OOF calibration, RuntimeError (-O), fallback & fairness
+    └── test_cli.py                         # run_all safety, predict schema validation & SHAP demo
+```
 
 ---
 

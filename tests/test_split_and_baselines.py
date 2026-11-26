@@ -7,6 +7,7 @@ import pytest
 from oulad.baselines import (
     SCORE_COLS,
     SENSITIVE_DEMOGRAPHIC_COLS,
+    _train_and_eval_pair,
     evaluate_returning_vs_new,
     predict_lgbm_proba,
     train_lightgbm,
@@ -14,7 +15,7 @@ from oulad.baselines import (
 )
 from oulad.config import SEED, TEST_PRESENTATION
 from oulad.features import split_feature_target
-from oulad.split import presentation_forward_split
+from oulad.split import SplitData, presentation_forward_split
 
 
 def _make_synthetic_feature_table(seed: int = SEED) -> pd.DataFrame:
@@ -195,3 +196,37 @@ def test_invalid_val_calib_ratio_raises() -> None:
     df = _make_synthetic_feature_table()
     with pytest.raises(ValueError, match="val_calib_ratio"):
         presentation_forward_split(df, val_calib_ratio=1.2)
+
+
+def test_runtime_guard_blocks_2014j_in_baselines_under_optimization_mode() -> None:
+    """F-06: SplitData.assert_invariants must raise exact RuntimeError on 2014J under python -O."""
+    df = _make_synthetic_feature_table()
+    split = presentation_forward_split(df, seed=SEED)
+    bad_train = pd.concat([split.train, split.test_locked.iloc[:2]], ignore_index=True)
+    bad_split = SplitData(
+        train=bad_train,
+        val_select=split.val_select,
+        val_calib=split.val_calib,
+        test_locked=split.test_locked,
+    )
+    with pytest.raises(RuntimeError, match="2014J"):
+        _train_and_eval_pair(bad_split, seed=SEED)
+
+
+@pytest.mark.parametrize("leaked_field", ["train", "val_select", "val_calib"])
+def test_split_assert_invariants_runtime_guard_exact_runtime_error(leaked_field: str) -> None:
+    """SplitData.assert_invariants raises exact RuntimeError when 2014J leaks into non-test."""
+    df = _make_synthetic_feature_table()
+    split = presentation_forward_split(df, seed=SEED)
+    fields = {
+        "train": split.train,
+        "val_select": split.val_select,
+        "val_calib": split.val_calib,
+        "test_locked": split.test_locked,
+    }
+    fields[leaked_field] = pd.concat(
+        [fields[leaked_field], split.test_locked.iloc[:1]], ignore_index=True
+    )
+    bad_split = SplitData(**fields)
+    with pytest.raises(RuntimeError, match="2014J"):
+        bad_split.assert_invariants()

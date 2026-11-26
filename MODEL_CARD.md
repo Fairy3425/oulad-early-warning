@@ -3,7 +3,7 @@
 ## 1. Model Details
 
 - **Model Name:** OULAD Day-28 Student Risk Early Warning — Locked Champion (`LightGBM`)
-- **Version:** `v1.0-rc` *(locked champion artifact generated before single `2014J` unlock at commit `8937857`)*
+- **Version:** Pre-release candidate *(target release tag `v1.0-rc` — tag will only be created after Live GitHub Actions CI passes; the historical `2014J` evaluation report was committed in the `P1-B5` commit `2c8bab8` and has remained unchanged in the subsequent Git history. The available repository evidence does not independently establish the exact number of local evaluation executions before that commit.)*
 - **Model Type:** Binary Gradient Boosted Decision Trees (`lightgbm.LGBMClassifier`, `subsample_freq=1`, deterministic `seed=42`), benchmarked against `LogisticRegression` (median impute + standard scale + one-hot) and a PyTorch `TabularMLP` (entity embeddings with `Unknown/Missing = 0`, LayerNorm, Dropout `0.2`, unweighted `BCEWithLogitsLoss`, trained on CPU).
 - **Prediction Horizon & Cohort:** Day `T = 28` (Start-of-Day, strictly `< 28` features), Operational Cohort (`date_registration < 28` and still enrolled at Day 28).
 - **Output:** Risk score in `[0, 1]` (`calibration_method = "uncalibrated"` per pre-specified OOF Brier selection rule on `val_calib`) and binary alert decision at locked operating threshold `tau* = 0.4279`.
@@ -30,7 +30,7 @@
   - **Train (`2013B + 2013J`):** `n = 11,806` (`T=28 Operational`).
   - **Validation Select (`60%` stratified `2014B`):** `n = 3,905` (`pos_rate = 48.43%`) — model comparison, LightGBM/MLP early stopping, SHAP summary.
   - **Validation Calibration (`40%` stratified `2014B`):** `n = 2,604` (`pos_rate = 48.43%`) — explicit 5-fold OOF calibration (`StratifiedKFold(5)` + `FrozenEstimator`) & threshold `tau*` selection.
-  - **Locked Test (`2014J`):** `n = 9,213` (`n_pos = 3,758`, `pos_rate = 40.79%`) — evaluated **once, read-only** after locking all models, calibrators, and thresholds (`post_unlock_model_edits = 0`).
+  - **Locked Test (`2014J`):** `n = 9,213` (`n_pos = 3,758`, `pos_rate = 40.79%`) — held out from training, model selection, calibration, and threshold selection. The historical `2014J` evaluation report was committed in the `P1-B5` commit `2c8bab8` and has remained unchanged in the subsequent Git history. The available repository evidence does not independently establish the exact number of local evaluation executions before that commit.
 - **Calendar Overlap Disclosure (`AUD-07`):** `2013J` (Oct 2013–Jun 2014) overlaps ~4 months with `2014B` (Feb–Oct 2014). The final evaluation from `2013` Train to `2014J` Locked Test (Oct 2014) has zero calendar overlap.
 - **Data Quality Verification (`reports/data_quality.json`):** `9/9` automated DuckDB checks returned `0` violations across `32,593` enrollments and `10,655,280` VLE interaction rows (`imd_band` missing rate `3.41% < 5%`, preserved explicitly as `MISSING` in subgroup audits).
 
@@ -65,13 +65,13 @@
 - **Strict Caveat (`AUD-B5-01`):**
   1. Ratios `1:5` and `1:10` are **illustrative assumptions only**, not real institutional intervention costs.
   2. Because the locked LightGBM champion is **`uncalibrated`**, thresholds `0.1667` and `0.0909` are **NOT claimed to be Bayes-optimal**. The formula `C_FP / (C_FP + C_FN)` carries a Bayes decision-theoretic interpretation **only** when input scores are well-calibrated posterior probabilities under matching deployment priors and verified operational cost assumptions.
-  3. *Historical Artifact Note:* The frozen JSON artifact `reports/metrics_test_locked.json` (commit `8937857`) is preserved verbatim without re-running `2014J` and retains the original key name `"bayes_cost_tau"`; `src/oulad/evaluate.py` has been updated to label this field `"cost_ratio_tau"` with the non-Bayes disclaimer above.
+  3. *Historical Artifact Note:* The frozen JSON artifact `reports/metrics_test_locked.json` (`P1-B5` commit `2c8bab8`) is preserved verbatim without re-running `2014J` and retains the original key name `"bayes_cost_tau"`; `src/oulad/evaluate.py` has been updated to label this field `"cost_ratio_tau"` with the non-Bayes disclaimer above.
 
 ### 4.4 Returning vs New & Sensitivity Findings (`AUD-B5-04`)
 
 - **Returning vs New (`2014J`, LightGBM):** Returning students (`n = 782`, `8.49%`, `pos_rate = 57.93%`) achieved `PR-AUC = 0.7987`, `ROC-AUC = 0.7442`, `Brier = 0.2037`; New students (`n = 8,431`, `91.51%`, `pos_rate = 39.20%`) achieved `PR-AUC = 0.6640`, `ROC-AUC = 0.7428`, `Brier = 0.2040`.
 - **Cutoff Progression (`reports/cutoff_comparison_test.csv`):** LightGBM `PR-AUC` rises monotonically across `T=14 → 21 → 28` on both Operational (`0.6312 → 0.6526 → 0.6813`) and Safe Common (`0.6239 → 0.6501 → 0.6798`).
-- **Score-Free Sensitivity Check (`FA-03`, `AUD-B5-04`):** Dropping `mean_score` and `has_score` yielded `PR-AUC = 0.7008 (+0.0195)`, `ROC-AUC = 0.7525 (+0.0058)`, and `Brier = 0.1948` on `2014J` (versus `val_select` where dropping scores reduced `PR-AUC` by `-0.0301`). **Per Single-Unlock Discipline (`FA-02`), Full LightGBM remains the locked champion.** Score-Free `PR-AUC = 0.7008` is recorded strictly as an **exploratory test finding** (reflecting OULAD's missing `date_graded` and cross-season formative score anomalies) and is **NOT** selected for production based on `2014J`; any follow-up comparison must use a **fresh, unused holdout cohort**.
+- **Score-Free Sensitivity Check (`FA-03`, `AUD-B5-04`):** Dropping `mean_score` and `has_score` yielded `PR-AUC = 0.7008 (+0.0195)`, `ROC-AUC = 0.7525 (+0.0058)`, and `Brier = 0.1948` on `2014J` (versus `val_select` where dropping scores reduced `PR-AUC` by `-0.0301`). **Per locked-test holdout discipline (`FA-02`), Full LightGBM remains the locked champion** (no model, feature set, calibrator, or threshold was modified after committing the historical `2014J` report in `2c8bab8`). Score-Free `PR-AUC = 0.7008` is recorded strictly as an **exploratory test finding** (reflecting OULAD's missing `date_graded` and cross-season formative score anomalies) and is **NOT** selected for production based on `2014J`; any follow-up comparison must use a **fresh, unused holdout cohort**.
 
 ---
 

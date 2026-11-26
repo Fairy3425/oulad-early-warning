@@ -9,7 +9,11 @@ and scores self-contained illustrative Day-28 student profiles (never touches 20
 """
 
 import argparse
+import hashlib
+import hmac
 import json
+import math
+import pickle
 from pathlib import Path
 from typing import Any
 
@@ -172,13 +176,157 @@ def _extract_top_shap_drivers(
     return all_drivers
 
 
+def _canonical_component_bytes(obj: Any) -> bytes:
+    """Serialize a model or calibrator component deterministically for artifact fingerprinting."""
+    if obj is None:
+        return b"NONE"
+    if isinstance(obj, LGBMSklearnWrapper):
+        payload = {
+            "type": f"{type(obj).__module__}.{type(obj).__qualname__}",
+            "booster_model": obj.model.booster_.model_to_string(),
+            "cat_categories": {
+                str(k): list(v) for k, v in sorted(obj.cat_categories.items())
+            },
+        }
+        return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    if hasattr(obj, "booster_") and hasattr(obj.booster_, "model_to_string"):
+        payload = {
+            "type": f"{type(obj).__module__}.{type(obj).__qualname__}",
+            "booster_model": obj.booster_.model_to_string(),
+        }
+        return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    if hasattr(obj, "model") and hasattr(obj, "preprocessor") and hasattr(obj.model, "state_dict"):
+        hasher = hashlib.sha256()
+        hasher.update(f"{type(obj).__module__}.{type(obj).__qualname__}".encode("utf-8"))
+        for key, tensor in sorted(obj.model.state_dict().items()):
+            arr = tensor.detach().cpu().numpy()
+            hasher.update(key.encode("utf-8"))
+            hasher.update(str(arr.shape).encode("utf-8"))
+            hasher.update(str(arr.dtype).encode("utf-8"))
+            hasher.update(arr.tobytes())
+        if hasattr(obj.preprocessor, "to_dict"):
+            hasher.update(
+                json.dumps(
+                    obj.preprocessor.to_dict(), sort_keys=True, separators=(",", ":")
+                ).encode("utf-8")
+            )
+        return hasher.digest()
+    return pickle.dumps(obj, protocol=4)
+
+
+def compute_bundle_artifact_fingerprint(bundle: dict[str, Any]) -> str:
+    """Compute a stable SHA-256 fingerprint binding metadata to the exact inference artifact.
+
+    Covers base_model state, calibrator state, ordered feature_columns, champion_name,
+    calibration_method, cutoff, cohort_mode, and threshold. Deliberately excludes
+    evaluation_metadata to avoid any circular dependency.
+    """
+    hasher = hashlib.sha256()
+    config_payload = {
+        "champion_name": str(bundle["champion_name"]),
+        "calibration_method": str(bundle["calibration_method"]),
+        "cutoff": int(bundle["cutoff"]),
+        "cohort_mode": str(bundle["cohort_mode"]),
+        "threshold": repr(float(bundle["threshold"])),
+        "feature_columns": [str(c) for c in bundle["feature_columns"]],
+    }
+    hasher.update(b"CONFIG:")
+    hasher.update(json.dumps(config_payload, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+    hasher.update(b"|BASE_MODEL:")
+    hasher.update(_canonical_component_bytes(bundle["base_model"]))
+    hasher.update(b"|CALIBRATOR:")
+    hasher.update(_canonical_component_bytes(bundle["calibrator"]))
+    return hasher.hexdigest()
+
+
+def _is_valid_sha256_hex(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(ch in "0123456789abcdef" for ch in value.lower())
+    )
+
+
+def _resolve_verified_ece_metadata(
+    bundle: dict[str, Any],
+    *,
+    expected_fingerprint: str,
+    champion_name: str,
+    cal_method: str,
+    cutoff: int,
+    cohort_mode: str,
+    threshold: float,
+    feature_columns: list[str],
+) -> tuple[float | None, str]:
+    """Return ECE metadata ONLY when bound by an exact SHA-256 artifact fingerprint."""
+    meta = bundle.get("evaluation_metadata")
+    if isinstance(meta, dict):
+        meta_fp = meta.get("artifact_fingerprint")
+        meta_threshold = meta.get("threshold")
+        threshold_ok = (
+            isinstance(meta_threshold, (int, float))
+            and not isinstance(meta_threshold, bool)
+            and np.isfinite(meta_threshold)
+            and math.isclose(float(meta_threshold), float(threshold), rel_tol=0.0, abs_tol=1e-12)
+        )
+        raw_ece = meta.get("ece_10bins")
+        ece_ok = (
+            isinstance(raw_ece, (int, float))
+            and not isinstance(raw_ece, bool)
+            and np.isfinite(raw_ece)
+            and 0.0 <= float(raw_ece) <= 1.0
+        )
+        meta_cols = meta.get("feature_columns")
+        cols_ok = isinstance(meta_cols, list) and [str(c) for c in meta_cols] == feature_columns
+
+        matches_fields = (
+            meta.get("model_name") == champion_name
+            and meta.get("calibration_method") == cal_method
+            and meta.get("cutoff") == cutoff
+            and meta.get("cohort_mode") == cohort_mode
+            and threshold_ok
+            and cols_ok
+        )
+        fingerprint_ok = _is_valid_sha256_hex(meta_fp) and hmac.compare_digest(
+            meta_fp.lower(), expected_fingerprint.lower()
+        )
+        if fingerprint_ok and matches_fields and ece_ok:
+            ece_val = round(float(raw_ece), 4)
+            dataset_label = str(meta.get("eval_dataset", "evaluation split"))
+            return (
+                ece_val,
+                f"Artifact-verified bundle metadata ({dataset_label}, "
+                f"sha256={expected_fingerprint[:12]}): calibration_method={cal_method}, "
+                f"ECE_10bins={ece_val:.4f} (not claimed perfectly calibrated).",
+            )
+
+    if cal_method == "uncalibrated":
+        return (
+            None,
+            "No artifact-verified evaluation ECE metadata attached to this bundle "
+            "(scores are raw uncalibrated model outputs; calibration error is not estimated "
+            "from inference samples).",
+        )
+    return (
+        None,
+        f"Post-hoc {cal_method} calibrator attached; no artifact-verified evaluation ECE "
+        "metadata embedded in this bundle.",
+    )
+
+
 def predict_from_bundle(
     X_samples: pd.DataFrame,
     bundle_path: Path = DEFAULT_BUNDLE_PATH,
     *,
     top_k_shap: int = 5,
 ) -> dict[str, Any]:
-    """Score feature rows using a locked champion bundle and return structured predictions."""
+    """Score feature rows using a locked champion bundle with strict schema validation.
+
+    Schema policy (F-04):
+    - Missing required feature columns raise ValueError immediately (never silently filled).
+    - Extra columns not in bundle['feature_columns'] are explicitly ignored and reported under
+      'ignored_extra_columns'.
+    """
     if not bundle_path.is_file():
         raise FileNotFoundError(
             f"Locked champion bundle not found at {bundle_path}. "
@@ -188,12 +336,36 @@ def predict_from_bundle(
 
     bundle: dict[str, Any] = joblib.load(bundle_path)
     feature_columns: list[str] = list(bundle["feature_columns"])
-    X_aligned = X_samples.reindex(columns=feature_columns)
+    required_set = set(feature_columns)
+
+    missing_cols = [c for c in feature_columns if c not in X_samples.columns]
+    if missing_cols:
+        raise ValueError(
+            f"Missing required feature column(s) ({len(missing_cols)}): "
+            f"{', '.join(missing_cols)}"
+        )
+    extra_cols = [str(c) for c in X_samples.columns if c not in required_set]
+    X_aligned = X_samples.loc[:, feature_columns].copy()
 
     base_model = bundle["base_model"]
     calibrator = bundle["calibrator"]
     threshold = float(bundle["threshold"])
     cal_method = str(bundle["calibration_method"])
+    champion_name = str(bundle["champion_name"])
+    cutoff = int(bundle["cutoff"])
+    cohort_mode = str(bundle["cohort_mode"])
+
+    artifact_fingerprint = compute_bundle_artifact_fingerprint(bundle)
+    reported_ece, calibration_note = _resolve_verified_ece_metadata(
+        bundle,
+        expected_fingerprint=artifact_fingerprint,
+        champion_name=champion_name,
+        cal_method=cal_method,
+        cutoff=cutoff,
+        cohort_mode=cohort_mode,
+        threshold=threshold,
+        feature_columns=feature_columns,
+    )
 
     probs = apply_calibrator(base_model, calibrator, X_aligned)
     shap_drivers = _extract_top_shap_drivers(base_model, X_aligned, top_k=top_k_shap)
@@ -218,17 +390,15 @@ def predict_from_bundle(
         )
 
     return {
-        "champion_model": str(bundle["champion_name"]),
-        "cutoff_day": int(bundle["cutoff"]),
-        "cohort_mode": str(bundle["cohort_mode"]),
+        "champion_model": champion_name,
+        "cutoff_day": cutoff,
+        "cohort_mode": cohort_mode,
         "calibration_method": cal_method,
         "locked_threshold": round(threshold, 4),
-        "calibration_note": (
-            "Champion kept uncalibrated by pre-specified OOF Brier rule on val_calib; "
-            "locked 2014J ECE=0.0542 (not perfectly calibrated under seasonal prior shift)."
-            if cal_method == "uncalibrated"
-            else f"Post-hoc {cal_method} calibrator fitted on val_calib."
-        ),
+        "artifact_fingerprint": artifact_fingerprint,
+        "reported_ece_10bins": reported_ece,
+        "calibration_note": calibration_note,
+        "ignored_extra_columns": extra_cols,
         "shap_disclaimer": SHAP_DISCLAIMER,
         "predictions": predictions,
     }
@@ -243,8 +413,12 @@ def _format_human_readable(result: dict[str, Any]) -> str:
         f"Locked Threshold tau*: {result['locked_threshold']:.4f}",
         f"Calibration Note  : {result['calibration_note']}",
         f"SHAP Disclaimer   : {result['shap_disclaimer']}",
-        "",
     ]
+    if result.get("ignored_extra_columns"):
+        lines.append(
+            f"Ignored Extra Cols: {', '.join(result['ignored_extra_columns'])}"
+        )
+    lines.append("")
     for pred in result["predictions"]:
         lines.append(
             f"[{pred['sample_id']}] risk_score={pred['risk_score']:.4f} "

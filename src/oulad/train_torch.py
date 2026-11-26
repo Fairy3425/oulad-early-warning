@@ -31,7 +31,6 @@ from oulad.config import (
     PROJECT_ROOT,
     REPORTS_DIR,
     SEED,
-    TEST_PRESENTATION,
 )
 from oulad.features import split_feature_target
 from oulad.split import SplitData, load_feature_parquet, presentation_forward_split
@@ -325,9 +324,8 @@ def run_p1_b4_torch_suite(
     """Train TabularMLP on T=28 Operational, save checkpoint/plot, and update metrics_val.json."""
     df = load_feature_parquet(PRIMARY_CUTOFF, mode="operational", processed_dir=processed_dir)
     split: SplitData = presentation_forward_split(df, seed=seed)
+    # Single source of truth (raises RuntimeError, survives python -O): block 2014J
     split.assert_invariants()
-    assert TEST_PRESENTATION not in set(split.train["code_presentation"])
-    assert TEST_PRESENTATION not in set(split.val_select["code_presentation"])
 
     X_train, y_train = split_feature_target(split.train)
     X_val, y_val = split_feature_target(split.val_select)

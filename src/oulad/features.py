@@ -325,17 +325,25 @@ def build_features(
             df["clicks_w0"] + df["clicks_w1"] + 1.0
         )
 
-    # Hard runtime invariant assertions (AUD-01 & AUD-02)
+    # Hard runtime invariant guards (AUD-01 & AUD-02; explicit RuntimeError survives python -O)
+    if mode == "operational":
+        max_allowed_registration = feature_cutoff
+    elif mode == "common":
+        max_allowed_registration = 14
+    else:
+        raise ValueError(f"Invalid mode '{mode}'. Expected 'operational' or 'common'.")
+
     if len(df) > 0:
-        assert df["date_registration"].notna().all(), "Cohort contains NULL date_registration"
-        assert (df["date_registration"] < feature_cutoff).all(), (
-            f"Temporal leakage: date_registration >= {feature_cutoff} in mode={mode}"
-        )
-        valid_rates = df["submission_rate_due"].dropna()
-        if len(valid_rates) > 0:
-            assert ((valid_rates >= 0.0) & (valid_rates <= 1.0)).all(), (
-                "AUD-02 violation: submission_rate_due outside [0.0, 1.0]"
+        if not df["date_registration"].notna().all():
+            raise RuntimeError("Cohort boundary violation: NULL date_registration detected.")
+        if not (df["date_registration"] < max_allowed_registration).all():
+            raise RuntimeError(
+                f"Temporal leakage: date_registration >= {max_allowed_registration} "
+                f"in mode={mode} (cutoff={feature_cutoff})"
             )
+        valid_rates = df["submission_rate_due"].dropna()
+        if len(valid_rates) > 0 and not ((valid_rates >= 0.0) & (valid_rates <= 1.0)).all():
+            raise RuntimeError("AUD-02 violation: submission_rate_due outside [0.0, 1.0]")
 
     return df
 
