@@ -226,6 +226,7 @@ def select_best_calibrator_oof(
 
     skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
     folds = list(skf.split(X_val_calib, y_arr))
+    assert len(folds) == n_splits, f"Expected {n_splits} calibration folds, got {len(folds)}"
     min_fold_train = int(min(len(fit_idx) for fit_idx, _ in folds))
 
     # Hard AUD-08 / FA-02 guard against isotonic overfitting on small calibration sets
@@ -249,10 +250,18 @@ def select_best_calibrator_oof(
         if method == "uncalibrated":
             continue
         oof_probs = np.zeros(n_calib, dtype=np.float64)
+        oof_counts = np.zeros(n_calib, dtype=np.int64)
         for fit_idx, eval_idx in folds:
+            assert set(fit_idx).isdisjoint(set(eval_idx)), (
+                "OOF violation: calibration fit and eval folds overlap."
+            )
             cal = CalibratedClassifierCV(estimator=FrozenEstimator(base_model), method=method)
             cal.fit(X_val_calib.iloc[fit_idx], y_arr[fit_idx])
             oof_probs[eval_idx] = cal.predict_proba(X_val_calib.iloc[eval_idx])[:, 1]
+            oof_counts[eval_idx] += 1
+        assert np.all(oof_counts == 1), (
+            "OOF violation: each val_calib sample must receive exactly one OOF probability."
+        )
         oof_by_method[method] = oof_probs
         candidate_metrics[method] = {
             "brier_score": round(float(brier_score_loss(y_arr, oof_probs)), 5),
@@ -419,16 +428,22 @@ def build_illustrative_cost_benefit_table(
     locked_threshold: float,
     cost_ratios: Sequence[tuple[int, int]] = ((1, 5), (1, 10)),
 ) -> list[dict[str, Any]]:
-    """Compute illustrative expected costs (FP:FN = 1:5, 1:10) with explicit disclaimer."""
+    """Compute illustrative empirical costs at locked tau and fixed cost-ratio thresholds.
+
+    Note (AUD-B5-01): C_FP / (C_FP + C_FN) is an illustrative fixed cost-ratio threshold only.
+    It carries a Bayes decision-theoretic interpretation ONLY when inputs are well-calibrated
+    posterior probabilities under matching deployment priors — NOT for raw uncalibrated scores.
+    """
     y_arr = np.asarray(y_true, dtype=np.int64)
     p_arr = np.clip(np.asarray(y_prob, dtype=np.float64), 0.0, 1.0)
     n = max(len(y_arr), 1)
     rows: list[dict[str, Any]] = []
 
     for c_fp, c_fn in cost_ratios:
-        # Bayes-optimal threshold under calibrated probabilities: C_FP / (C_FP + C_FN)
-        tau_bayes = c_fp / (c_fp + c_fn)
-        for label, tau in (("locked_tau", locked_threshold), ("bayes_cost_tau", tau_bayes)):
+        # Fixed illustrative cost-ratio cutoff C_FP / (C_FP + C_FN); NOT Bayes-optimal for raw
+        # uncalibrated scores (Bayes interpretation requires calibrated posteriors & matching prior)
+        tau_cost_ratio = c_fp / (c_fp + c_fn)
+        for label, tau in (("locked_tau", locked_threshold), ("cost_ratio_tau", tau_cost_ratio)):
             y_pred = (p_arr >= tau).astype(np.int64)
             tn, fp, fn, tp = confusion_matrix(y_arr, y_pred, labels=[0, 1]).ravel().tolist()
             total_cost = int(c_fp * fp + c_fn * fn)
@@ -444,7 +459,9 @@ def build_illustrative_cost_benefit_table(
                     "total_illustrative_cost": total_cost,
                     "cost_per_student": round(total_cost / n, 4),
                     "disclaimer": (
-                        "Illustrative cost assumption only (not real institutional cost)."
+                        "Illustrative cost assumption only (not real institutional cost). "
+                        "C_FP/(C_FP+C_FN) is a fixed cost-ratio cutoff, not Bayes-optimal "
+                        "for uncalibrated scores."
                     ),
                 }
             )

@@ -1,17 +1,24 @@
 """Contract unit tests for OOF calibration guards, threshold fallback, FP/FN & fairness (P1-B5)."""
 
+from unittest.mock import patch
+
 import numpy as np
 import pandas as pd
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.linear_model import LogisticRegression
 
-from oulad.config import SEED
+from oulad.baselines import train_logistic_regression
+from oulad.config import SEED, TEST_PRESENTATION
 from oulad.evaluate import (
+    build_illustrative_cost_benefit_table,
     compute_ece,
     compute_subgroup_fairness,
     extract_post_lock_error_samples,
     select_best_calibrator_oof,
     select_threshold_with_fallback,
 )
+from oulad.features import split_feature_target
+from oulad.split import presentation_forward_split
 
 
 def _fit_simple_binary_model(n_rows: int, seed: int = SEED) -> tuple[
@@ -166,3 +173,105 @@ def test_compute_ece_boundary_cases() -> None:
     y = np.array([0, 1, 0, 1], dtype=np.int64)
     assert compute_ece(y, np.array([0.5, 0.5, 0.5, 0.5])) == 0.0
     assert compute_ece(y, np.array([1.0, 0.0, 1.0, 0.0])) == 1.0
+
+
+def test_oof_calibration_5fold_disjoint_single_prediction_and_final_refit() -> None:
+    """Audit: 5 disjoint OOF folds, each row predicted once, final calibrator fit on full calib."""
+    model, X_cal, y_cal = _fit_simple_binary_model(n_rows=200, seed=SEED)
+    # Give X_cal unique index values to verify strict fit/eval disjointness & full coverage
+    X_cal = X_cal.copy()
+    X_cal.index = pd.RangeIndex(1000, 1200)
+    y_cal = y_cal.copy()
+    y_cal.index = X_cal.index
+
+    fit_calls: list[set[int]] = []
+    eval_calls: list[set[int]] = []
+    orig_fit = CalibratedClassifierCV.fit
+    orig_pred = CalibratedClassifierCV.predict_proba
+
+    def spy_fit(self: CalibratedClassifierCV, X: pd.DataFrame, y: np.ndarray, **kw: object):
+        fit_calls.append(set(X.index.tolist()))
+        return orig_fit(self, X, y, **kw)
+
+    def spy_pred(self: CalibratedClassifierCV, X: pd.DataFrame):
+        eval_calls.append(set(X.index.tolist()))
+        return orig_pred(self, X)
+
+    with (
+        patch.object(CalibratedClassifierCV, "fit", spy_fit),
+        patch.object(CalibratedClassifierCV, "predict_proba", spy_pred),
+    ):
+        res = select_best_calibrator_oof(model, X_cal, y_cal, n_splits=5, seed=SEED)
+
+    # First 5 fits are the 5 outer folds of sigmoid (isotonic blocked because n_calib=200 < 1000)
+    assert len(eval_calls) == 5
+    seen_eval: list[int] = []
+    for fold_i in range(5):
+        fit_idx = fit_calls[fold_i]
+        eval_idx = eval_calls[fold_i]
+        assert len(fit_idx) == 160 and len(eval_idx) == 40
+        assert fit_idx.isdisjoint(eval_idx)
+        seen_eval.extend(eval_idx)
+
+    # Every val_calib row received exactly one OOF prediction
+    assert len(seen_eval) == 200
+    assert set(seen_eval) == set(X_cal.index.tolist())
+
+    # If a calibrator won, final fit must happen strictly AFTER OOF folds on all 200 val_calib rows
+    if res.chosen_method != "uncalibrated":
+        assert len(fit_calls) == 6
+        assert fit_calls[-1] == set(X_cal.index.tolist())
+    else:
+        assert len(fit_calls) == 5
+
+
+def test_phase_a_calibration_and_threshold_isolated_from_2014j_mutation(
+    synthetic_feature_table: pd.DataFrame,
+) -> None:
+    """Audit: Mutating 2014J features & labels must have ZERO impact on Phase A calibration/tau*."""
+    df_orig = synthetic_feature_table.copy()
+    df_mut = synthetic_feature_table.copy()
+    mask_2014j = df_mut["code_presentation"] == TEST_PRESENTATION
+    df_mut.loc[mask_2014j, "clicks_total"] = 999999.0
+    df_mut.loc[mask_2014j, "mean_score"] = 0.0
+    df_mut.loc[mask_2014j, "target"] = 1 - df_mut.loc[mask_2014j, "target"]
+
+    def _run_phase_a(df: pd.DataFrame):
+        sp = presentation_forward_split(df, seed=SEED)
+        sp.assert_invariants()
+        assert TEST_PRESENTATION not in set(sp.train["code_presentation"])
+        assert TEST_PRESENTATION not in set(sp.val_calib["code_presentation"])
+        # Base model training rows and calibration rows must be strictly disjoint presentations
+        assert set(sp.train["code_presentation"]).isdisjoint(set(sp.val_calib["code_presentation"]))
+
+        X_tr, y_tr = split_feature_target(sp.train)
+        X_vc, y_vc = split_feature_target(sp.val_calib)
+        model = train_logistic_regression(X_tr, y_tr, seed=SEED)
+        cal = select_best_calibrator_oof(model, X_vc, y_vc, n_splits=5, seed=SEED)
+        th = select_threshold_with_fallback(
+            y_vc, cal.oof_probs_winner, target_precision=0.70, min_predicted_positives=5
+        )
+        return cal, th
+
+    cal_a, th_a = _run_phase_a(df_orig)
+    cal_b, th_b = _run_phase_a(df_mut)
+
+    assert cal_a.chosen_method == cal_b.chosen_method
+    assert cal_a.candidate_metrics == cal_b.candidate_metrics
+    np.testing.assert_allclose(cal_a.oof_probs_winner, cal_b.oof_probs_winner, rtol=0, atol=0)
+    assert th_a.threshold == th_b.threshold
+    assert th_a.fallback_used == th_b.fallback_used
+
+
+def test_illustrative_cost_benefit_uses_cost_ratio_tau_and_non_bayes_disclaimer() -> None:
+    """AUD-B5-01: Must use cost_ratio_tau label and avoid claiming Bayes optimality for raw."""
+    y = np.array([0, 0, 1, 1], dtype=np.int64)
+    p = np.array([0.1, 0.3, 0.2, 0.8], dtype=np.float64)
+    rows = build_illustrative_cost_benefit_table(y, p, locked_threshold=0.4279)
+
+    policies = {r["policy"] for r in rows}
+    assert policies == {"locked_tau", "cost_ratio_tau"}
+    assert "bayes_cost_tau" not in policies
+    for r in rows:
+        assert "not bayes-optimal for uncalibrated scores" in r["disclaimer"].lower()
+        assert "illustrative cost assumption only" in r["disclaimer"].lower()
