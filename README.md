@@ -2,225 +2,210 @@
 
 [![OULAD CI](https://github.com/Fairy3425/oulad-early-warning/actions/workflows/ci.yml/badge.svg)](https://github.com/Fairy3425/oulad-early-warning/actions/workflows/ci.yml)
 
-An end-to-end, reproducible tabular ML & PyTorch deep learning pipeline built on the **Open University Learning Analytics Dataset (OULAD, UCI ID 349, CC BY 4.0)** to identify students at risk of **Fail or Withdrawn** by **Day 28 (Start of Day)** with strict temporal leakage controls, explicit out-of-fold (OOF) calibration auditing, subgroup performance evaluation, and synthetic-database CI.
+An end-to-end, reproducible tabular ML and PyTorch pipeline on the **Open University Learning Analytics Dataset (OULAD, UCI ID 349, CC BY 4.0)** that predicts whether an active student is at risk of **Fail or Withdrawn** by **Day 28 (Start of Day)** — built to prioritize supportive academic advising while rigorously preventing temporal data leakage.
+
+## Highlights
+
+| Pillar | Verified Outcome | Evidence |
+| :--- | :--- | :--- |
+| **Data Engineering & SQL Quality** | Ingests `32,593` enrollments & `10.66M` VLE logs in DuckDB (`nullstr='?'`); `9/9` automated SQL quality checks pass (`0` violations). | [data_quality.json](reports/data_quality.json) |
+| **Proven Anti-Leakage Controls** | Start-of-Day `< T` features (`T ∈ {14, 21, 28}`), bounded `submission_rate_due ∈ [0, 1]`, and `29` parameterized leakage tests (`Operational` vs `Safe Common`). | [test_leakage.py](tests/test_leakage.py) |
+| **3-Model Benchmark (ML + PyTorch)** | LightGBM outperforms Logistic Regression and PyTorch `TabularMLP` on validation (`PR-AUC 0.7871`) and frozen historical `2014J` (`PR-AUC 0.6813`, `ROC-AUC 0.7467`). | [metrics_val.json](reports/metrics_val.json), [metrics_test_locked.json](reports/metrics_test_locked.json) |
+| **Calibration & Subgroup Audit** | Explicit 5-fold OOF calibration (`FrozenEstimator`) on `val_calib`, honest seasonal shift reporting (`ECE 0.0542`), non-causal SHAP, and 18-subgroup performance audit. | [fairness_test.csv](reports/fairness_test.csv), [MODEL_CARD.md](MODEL_CARD.md) |
+| **Reproducibility & CI** | `86/86` offline synthetic-DB tests, `ruff` 0 errors, pinned Linux CPU lockfile (`0` CUDA), safe-by-default CLI, and green GitHub Actions CI. | [ci.yml](.github/workflows/ci.yml), [REPRODUCIBILITY.md](docs/REPRODUCIBILITY.md) |
+
+## Table of Contents
+
+- [1. Project Overview](#1-project-overview)
+- [2. Dataset](#2-dataset)
+- [3. Methodology](#3-methodology)
+- [4. Results](#4-results)
+- [5. Quick Start](#5-quick-start)
+- [6. Notebooks & Project Structure](#6-notebooks--project-structure)
+- [7. Limitations & Future Work](#7-limitations--future-work)
+- [8. Documentation & References](#8-documentation--references)
 
 ---
 
-## 1. Problem Statement
+## 1. Project Overview
 
-Given a student enrollment `(code_module, code_presentation, id_student)` and only behavioral, assessment, and registration records strictly available **before Day $T$ (`< T`, Start-of-Day)** for $T \in \{14, 21, 28\}$, predict whether the student will end the course as **At-Risk** (`final_result IN {'Fail', 'Withdrawn'}`, `target = 1`) versus **On-Track** (`final_result IN {'Pass', 'Distinction'}`, `target = 0`).
+- **Problem:** Online university courses experience high attrition (`40.79%–48.43%` at-risk rate across OULAD terms). Discovering risk at course completion is too late for intervention, yet building early-warning models is notoriously prone to silent temporal leakage (late registrations, future withdrawals, upcoming due dates, or random splits).
+- **Objective:** Given a student enrollment `(code_module, code_presentation, id_student)` and only records strictly available **before Day $T$** ($T \in \{14, 21, 28\}$, primary horizon **$T = 28$**), predict binary risk (`Fail` or `Withdrawn` → `1` vs `Pass` or `Distinction` → `0`) to support **voluntary, non-punitive academic outreach** (never automated penalties).
 
-## 2. Why It Matters
+---
 
-Online and blended university courses suffer high early attrition (`40.79%–48.43%` at-risk rate across OULAD presentations). Detecting risk **by Week 4 (Day 28)** — while students are still enrolled and intervention is actionable — allows academic advisors to prioritize supportive outreach rather than discovering failure at the end of the term. Equally important, early-warning pipelines are notoriously vulnerable to **silent temporal leakage** (late registrations, post-cutoff withdrawals, future assessment due dates, and random train/test splits); this project focuses on preventing, proving, and transparently documenting those failure modes.
+## 2. Dataset
 
-## 3. System Architecture
+- **Source:** Open University Learning Analytics Dataset (Kuzilek et al., 2017, *Scientific Data*, UCI ML Repository ID 349, licensed **CC BY 4.0**). Raw CSVs are gitignored; place the 7 files into `data/raw/`.
+- **Scale (`reports/data_quality.json`):** `32,593` student enrollments across `22` module-presentations (`AAA`–`GGG` × `2013B/2013J/2014B/2014J`), `10,655,280` daily VLE click logs, and `173,912` assessment submissions.
+- **Key Features (strictly `< T`):**
+  1. *VLE activity:* pre-course and weekly clicks, active days, unique resources, click volatility, recency (`days_since_last_click`), and Train-only top-5 activity types.
+  2. *Assessments:* bounded due-assessment submission rate (`submission_rate_due ∈ [0, 1]`), separate early/banked counts, `mean_score`, and submission lateness.
+  3. *Enrollment & demographics:* module, registration day (`< T`), prior attempts, credits, education, region, age band, disability, and deprivation index (`imd_band`, `3.41%` missing preserved explicitly).
+- **Data Constraints:** OULAD does not provide `date_graded` timestamps (tested via a score-free sensitivity check), and returning students across terms (`12.34%` in `2014B`, `8.87%` in `2014J`) are tracked as a dedicated segment rather than dropped.
+
+---
+
+## 3. Methodology
 
 ```mermaid
 flowchart LR
-    RAW["OULAD 7 CSVs<br/>(32,593 enrollments · 10.66M VLE)"] --> DB["DuckDB Ingestion<br/>nullstr='?' · 9 SQL Checks"]
-    DB --> FE["Start-of-Day SQL Features<br/>Operational & Safe Common (T=14,21,28)"]
-    FE --> SPLIT["Presentation Forward Split<br/>Train 2013 | val_select 60% 2014B<br/>val_calib 40% 2014B | Locked 2014J"]
+    RAW["7 OULAD CSVs<br/>(32.6k rows · 10.66M VLE)"] --> DB["DuckDB Ingestion<br/>nullstr='?' · 9 SQL Checks"]
+    DB --> FE["Start-of-Day Features<br/>Operational & Safe Common (T=14,21,28)"]
+    FE --> SPLIT["Presentation Forward Split<br/>Train 2013 | val_select 60% 2014B<br/>val_calib 40% 2014B | 2014J Held Out"]
     SPLIT --> MODELS["Train & Select on val_select<br/>LogReg · LightGBM · PyTorch TabularMLP"]
-    MODELS --> CAL["5-Fold OOF Calibration & tau*<br/>FrozenEstimator strictly on val_calib"]
-    CAL --> LOCK["LOCK Champion & Artifacts<br/>champion_locked.joblib"]
-    LOCK --> TEST["Historical Locked Test: 2014J<br/>Metrics · Cutoffs · Sensitivity · Fairness"]
-    LOCK --> CLI["CLI Demo<br/>python -m oulad.predict --sample"]
+    MODELS --> CAL["5-Fold OOF Calibration & tau*<br/>FrozenEstimator on val_calib"]
+    CAL --> LOCK["Lock Champion Bundle<br/>champion_locked.joblib"]
+    LOCK --> TEST["Frozen Historical 2014J Report<br/>Metrics · Cutoffs · Fairness"]
+    LOCK --> CLI["CLI Inference Demo<br/>python -m oulad.predict --sample"]
 ```
 
-## 4. Dataset & Data Quality Audit
+1. **Leakage-Free Cohorts:** Primary results use the **Operational Cohort** (`date_registration < T` and still enrolled at Day $T$), training separate models per horizon `14 / 21 / 28`. A **Safe Common Cohort** (`date_registration < 14`, still enrolled at Day 28) is evaluated solely as a retrospective sensitivity check.
+2. **Presentation-Based Forward Split:** Train on `2013B + 2013J` (`n = 11,806`), stratify `2014B` `60/40` into `val_select` (`n = 3,905`) and `val_calib` (`n = 2,604`), and hold out `2014J` (`n = 9,213`). *Calendar disclosure:* `2013J` (Oct 2013–Jun 2014) overlaps ~4 months with `2014B` (Feb–Oct 2014), whereas `2013 → 2014J` (Oct 2014) has zero calendar overlap.
+3. **Three Benchmarked Models:** Logistic Regression (standard sklearn pipeline), LightGBM (`subsample_freq=1` row bagging, early stopping on `val_select`), and PyTorch `TabularMLP` (entity embeddings with `Unknown/Missing = 0`, LayerNorm, Dropout `0.2`, unweighted `BCEWithLogitsLoss`, trained on CPU).
+4. **Explicit 5-Fold OOF Calibration & Thresholding:** Compares `uncalibrated`, `sigmoid`, and `isotonic` (with an automatic guard blocking `isotonic` if `n_calib < 1000`) via explicit 5-fold `StratifiedKFold` + `FrozenEstimator` strictly on `val_calib`, then selects `tau*` (`Precision >= 0.70`, `n_pred >= 30`, deterministic `max_f1` fallback) on OOF probabilities before locking.
 
-- **Source & Attribution:** Kuzilek, J., Hlosta, M., & Zdrahal, Z. (2017). *Open University Learning Analytics dataset*, Scientific Data 4:170171. Licensed under **CC BY 4.0** (UCI ML Repository ID 349). Raw CSVs are gitignored; place the 7 files into `data/raw/`.
-- **Ingested Scale (`reports/data_quality.json`):**
-  - `studentInfo`: `32,593` rows · `studentRegistration`: `32,593` rows · `studentVle`: `10,655,280` rows · `studentAssessment`: `173,912` rows · `assessments`: `206` rows · `vle`: `6,364` rows · `courses`: `22` rows.
-- **Automated SQL Data Quality (`9/9` checks = `0` violations):** composite primary key uniqueness, `final_result` domain, 3-key `studentVle → vle` referential integrity, `studentAssessment → assessments` integrity, valid score `[0, 100]`, positive `sum_click`, `vle.date <= module_presentation_length`, `imd_band` missing rate (`1,111 / 32,593 = 3.41% < 5%`), and `date_unregistration >= date_registration`.
-- **Returning vs New Student Overlap:** `2014B` contains `12.34%` returning enrollments (`963 / 7,804`); `2014J` contains `8.87%` returning enrollments (`999 / 11,260`). Metrics are explicitly broken down by `Returning` vs `New`.
+Full SQL rules, 12-cutoff benchmarks, sensitivity checks, and illustrative cost–benefit tables are documented in [docs/METHODOLOGY_AND_EVALUATION.md](docs/METHODOLOGY_AND_EVALUATION.md).
 
-## 5. Methodology & Anti-Leakage Controls
+---
 
-1. **Start-of-Day Cohorts (`AUD-01`):**
-   - **Operational Cohort (Primary):** `date_registration < T` AND `(date_unregistration IS NULL OR date_unregistration >= T)` (`T=14: 28,062`, `T=21: 27,880`, `T=28: 27,528`).
-   - **Safe Common Cohort (Controlled Retrospective Sensitivity):** `date_registration < 14` AND still enrolled at `T=28` (`27,491` enrollments across all 3 cutoffs).
-     - *Mandatory Caveat (`AUD-01`):* The Safe Common Cohort is defined retrospectively by requiring learners to remain enrolled through day 28. Therefore, it is suitable for controlled retrospective cohort comparison (isolating the value of Week 3–4 signals on a fixed population), but it does **not** represent the population or operational performance available at day 14.
-2. **Leakage-Safe Feature Bounds (`AUD-02`):** Strictly `< T` for all VLE clicks and assessments (`submission_rate_due ∈ [0, 1]` using only assessments due `< T` and submitted `< T`; top-5 VLE activity types derived strictly from Train presentations `2013B+2013J`). Verified by **29 anti-leakage tests** (`test_leakage.py`, including 24 parameterized `[14, 21, 28] × {operational, common}` checks, boundary/train-only tests, and `python -O` operational & Common Cohort runtime guard tests).
-3. **Presentation-Based Forward Split (`AUD-07`):**
-   - `train`: `2013B + 2013J` (`n = 11,806` at `T=28 Operational`)
-   - `val_select`: `60%` stratified of `2014B` (`n = 3,905`) — model & hyperparameter selection, early stopping, SHAP
-   - `val_calib`: `40%` stratified of `2014B` (`n = 2,604`, `pos_rate = 48.43%`) — explicit 5-fold OOF calibration & threshold selection
-   - `test_locked`: `2014J` (`n = 9,213`, `pos_rate = 40.79%`) — held out from training, selection, calibration, and thresholding. The historical `2014J` evaluation report was committed in the `P1-B5` commit `2c8bab8` and has remained unchanged in the subsequent Git history. The available repository evidence does not independently establish the exact number of local evaluation executions before that commit.
-   - *Calendar Overlap Disclosure:* `2013J` (Oct 2013–Jun 2014) overlaps ~4 months with `2014B` (Feb–Oct 2014), whereas `2013 → 2014J` (Oct 2014) has zero calendar overlap.
-4. **Explicit 5-Fold OOF Calibration (`AUD-08`, `FA-02`):** Runs an explicit `StratifiedKFold(5)` loop with `CalibratedClassifierCV(estimator=FrozenEstimator(base_model))` (scikit-learn ≥ 1.6), enforces a hard guard blocking `isotonic` when `n_calib < 1000` or `min_fold_train < 800`, picks operating threshold `tau*` (`Precision >= 0.70`, `n_pred >= 30`, with deterministic `max_f1` fallback) on **OOF** probabilities, and fits the final calibrator on full `val_calib` before locking.
+## 4. Results
 
-## 6. How to Run
+### Primary Comparison (`T = 28 Operational`)
 
-### Environment Setup (Linux `x86_64` · Python `3.11` · CPU — GitHub Actions CI Target)
+| Model | Validation `val_select` (`2014B`, `n=3,905`) PR-AUC / ROC-AUC / Brier | OOF Calib Choice (`val_calib`, `tau*`) | Frozen Historical `2014J` (`n=9,213`) PR-AUC / ROC-AUC | Frozen `2014J` Raw → Final Brier (`Δ`) | Frozen `2014J` Raw → Final ECE (`Δ`) | Frozen `2014J` Prec / Rec / F1 |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| **LightGBM *(Champion)*** | **`0.7871` / `0.7842` / `0.1880`** | `uncalibrated` (`0.4279`) | **`0.6813` / `0.7467`** | `0.2040 → 0.2040` (`0.0000`) | `0.0542 → 0.0542` (`0.0000`) | `0.6023 / 0.6852 / 0.6411` |
+| **TabularMLP (PyTorch, CPU)** | `0.7695` / `0.7689` / `0.1955` | `sigmoid` (`0.4156`) | `0.6376` / `0.7221` | `0.2128 → 0.2186` (`+0.0058`) | `0.0532 → 0.0713` (`+0.0181`) | `0.6022 / 0.6408 / 0.6209` |
+| **Logistic Regression** | `0.7815` / `0.7791` / `0.1911` | `sigmoid` (`0.4398`) | `0.6184` / `0.7239` | `0.2180 → 0.2187` (`+0.0007`) | `0.0814 → 0.0812` (`-0.0002`) | `0.6132 / 0.6437 / 0.6281` |
+
+> **Evaluation Context & Provenance Note:**
+> - **Validation results (`val_select` & `val_calib`)** come from [reports/metrics_val.json](reports/metrics_val.json) and [reports/metrics_test_locked.json](reports/metrics_test_locked.json) (`val_calib` `48.43%` positive rate).
+> - **Frozen Historical `2014J` results** (`40.79%` positive rate) come from [reports/metrics_test_locked.json](reports/metrics_test_locked.json), originally committed in `2c8bab8` and unchanged across subsequent Git history. `2014J` was excluded from training, model selection, calibration, and thresholding; however, repository history alone does not independently certify the exact number of local runs before `2c8bab8`, so `2014J` is reported transparently as a **frozen historical evaluation** rather than a freshly verified blind test.
+> - **Post-hoc reproduction** via `--include-locked-test` is disabled by default and is strictly a historical reproduction (see [docs/REPRODUCIBILITY.md](docs/REPRODUCIBILITY.md)).
+
+### Diagnostic Figures
+
+| Global Predictive Attribution (Non-Causal SHAP, `val_select`) | Reliability Diagram (`val_calib OOF` vs Frozen `2014J`) |
+| :---: | :---: |
+| ![SHAP Summary](reports/figures/shap_summary.png) | ![Calibration Curve](reports/figures/calibration_curve.png) |
+
+*(PyTorch training curve: [reports/figures/learning_curve.png](reports/figures/learning_curve.png). Full 18-subgroup audit: [reports/fairness_test.csv](reports/fairness_test.csv) & [MODEL_CARD.md](MODEL_CARD.md).)*
+
+### Key Findings
+
+- **Seasonal prior shift degrades threshold & probability transfer:** Moving from February `2014B` (`48.43%` at-risk) to October `2014J` (`40.79%` at-risk, `-7.64 pp`) dropped LightGBM Precision from `0.7011` (`val_calib OOF`) to `0.6023` (`2014J`) with `ECE = 0.0542`, and `2014B`-fitted `sigmoid` calibrators slightly increased `2014J` Brier scores.
+- **Signal improves monotonically across horizons:** On frozen `2014J` Operational cohorts ([reports/cutoff_comparison_test.csv](reports/cutoff_comparison_test.csv)), LightGBM `PR-AUC` rises from `0.6312` (Day 14) → `0.6526` (Day 21) → `0.6813` (Day 28).
+- **Sensitivity checks reinforce caution:** Dropping `gender`, `disability`, and `imd_band` changed `2014J` `PR-AUC` by only `-0.0014` (`0.6799`), confirming proxy variables persist. Dropping `mean_score` and `has_score` (testing the missing `date_graded` assumption) reduced `val_select` `PR-AUC` (`-0.0301`) but yielded `0.7008` (`+0.0195`) on `2014J` — logged strictly as an exploratory finding without changing the locked champion.
+
+---
+
+## 5. Quick Start
+
+### Option A — Run Offline Verification & Tests (No Dataset Download Required)
+
 ```bash
-# Target environment: Linux x86_64, Python 3.11, CPU-only (GitHub Actions CI target)
+# Linux x86_64 · Python 3.11 · CPU (CI-verified environment)
 python3.11 -m venv .venv
 source .venv/bin/activate
 pip install --index-url https://pypi.org/simple --extra-index-url https://download.pytorch.org/whl/cpu -r requirements-cpu.lock
 pip install --no-deps --no-build-isolation -e .
-```
 
-**Dependency & Lockfile Notes (`F-05`):**
-- **`requirements-cpu.lock` (Linux `x86_64` · Python `3.11` · CPU · GitHub Actions Target):** Pins 42 Linux `x86_64` CPU dependencies (`torch==2.15.0+cpu`, `duckdb==1.5.6`, `lightgbm==4.7.0`, `scikit-learn==1.9.1`, `shap==0.51.0`; `0` CUDA / `0` `@ file://` entries) compiled specifically for `--python-platform x86_64-unknown-linux-gnu --python-version 3.11` (this is a Linux CI target lockfile, not a universal cross-OS lockfile). The Linux `x86_64` / Python `3.11` CPU environment (including `duckdb==1.5.6`) is installed and verified automatically in [OULAD GitHub Actions CI](https://github.com/Fairy3425/oulad-early-warning/actions/workflows/ci.yml) (e.g., passing [run #45781213279](https://github.com/Fairy3425/oulad-early-warning/actions/runs/45781213279) and [run #45780126977](https://github.com/Fairy3425/oulad-early-warning/actions/runs/45780126977)).
-- **`requirements-local.lock` (Windows Workstation Snapshot — Non-Portable):** Captures the original Windows development `.venv` (including interactive notebook tooling, MLflow, and `duckdb==2.0.1`). All local SQL quality checks, anti-leakage tests, and model/CLI tests were verified on **DuckDB `2.0.1`**; `requirements-local.lock` is retained strictly for provenance, not as a cross-platform install target.
-- **MLflow (Optional):** `mlflow` is intentionally omitted from `requirements-cpu.lock` to keep CI fast and lightweight. `evaluate.py` logs to local `sqlite:///mlflow.db` (gitignored) when `mlflow` is installed (`pip install mlflow`) and degrades gracefully (`logged: false`) when absent.
-
-### Fresh-Clone Demo Workflow (Safe Default — Skips Locked `2014J` Evaluation)
-Model binaries (`artifacts/champion_locked.joblib`) and raw OULAD CSVs (`data/raw/`) are intentionally **gitignored** to keep the repository lightweight and compliant with dataset redistribution practices. After cloning the repository:
-
-```bash
-# 1. Place the 7 OULAD CSV files (UCI ID 349, CC BY 4.0) into data/raw/
-# 2. Optional dry-run to inspect input files and pipeline stages (writes nothing):
-python -m oulad.run_all --skip-download --dry-run
-
-# 3. Build DuckDB, 6 Parquets, validation models & artifacts/champion_locked.joblib
-#    (Stage 5 locked-test evaluation is skipped; run_p1_b5_locked_evaluation_suite is unreachable):
-python -m oulad.run_all --skip-download --skip-locked-test
-
-# 4. Run the locked-champion CLI demo with non-causal Top-5 SHAP drivers:
-python -m oulad.predict --sample
-```
-
-- **Exact `2014J` Data-Access Boundary (`AUD-B6-05`):** During Stages 1–2, all raw OULAD CSVs (including `2014J`) are ingested into DuckDB for schema quality checks and row-wise Start-of-Day feature Parquet export (while top-5 VLE activity selection is strictly Train-only `2013B+2013J`, and `cohort_summary.json` logs only aggregate all-presentation cohort stats). During Stages 3–4b (`--skip-locked-test`, the default), `2014J` is **strictly excluded** from model training, feature selection, calibration, threshold selection, hyperparameter tuning, model selection, and evaluation, and `run_p1_b5_locked_evaluation_suite()` is unreachable.
-- Running `python -m oulad.predict --sample` on a fresh clone before Step 3 raises a clear `FileNotFoundError` pointing to the safe Step 3 command above. To run Step 3 without overwriting committed `reports/`, pass `--reports-dir <tmp_dir> --figures-dir <tmp_dir>`.
-
-### Post-Hoc Historical Reproduction Workflow (Explicit Opt-In `--include-locked-test`)
-> **Important Scientific Integrity Warning (`AUD-B6-06`):**
-> - **Default execution skips the locked test** (`include_locked_test = False`).
-> - Passing `--include-locked-test` executes a **post-hoc historical reproduction** of the `2014J` evaluation. The historical `2014J` evaluation report was committed in the `P1-B5` commit `2c8bab8` and has remained unchanged in the subsequent Git history. The available repository evidence does not independently establish the exact number of local evaluation executions before that commit.
-> - **This is NOT a new blind test.**
-> - Its output **must NOT be used to select, compare, or tune models, features, calibrators, or thresholds** while continuing to claim `2014J` is an independent holdout.
-
-To reproduce historical `2014J` outputs into an isolated directory without modifying committed `reports/`:
-
-```bash
-python -m oulad.run_all --skip-download --include-locked-test --reports-dir ./tmp_repro/reports --figures-dir ./tmp_repro/figures
-```
-
-## 7. How to Test
-
-All automated checks run offline on synthetic DuckDB fixtures (zero raw dataset download required, zero GPU required):
-
-```bash
 ruff check .
-pytest -v
+pytest -q
 ```
 
-Test suites cover:
-- `tests/test_quality.py` (13 tests): 9 SQL data quality checks, `nullstr='?'` parsing, Returning/New overlap.
-- `tests/test_leakage.py` (29 tests): parameterized `[14, 21, 28]` × `{operational, common}` future-event invariance, post-outcome invariance, registration/week bounds, `submission_rate_due ∈ [0, 1]`, train-only top activities, and `-O`-safe `RuntimeError` operational & Common Cohort (`date_registration < 14`) guards.
-- `tests/test_split_and_baselines.py` (10 tests): forward split invariants, `subsample_freq=1`, unseen categories, `2014J` mutation isolation, and exact `-O`-safe `RuntimeError` `2014J` guards across `SplitData.assert_invariants` and baselines.
-- `tests/test_models.py` (5 tests): PyTorch `TabularMLP` `Unknown/Missing -> 0`, raw logits, gradient step, checkpoint roundtrip, `2014J` isolation, and exact `-O`-safe `RuntimeError` `2014J` guard.
-- `tests/test_metrics.py` (13 tests): `n_calib < 1000` isotonic guard, `FrozenEstimator` 5-fold disjoint OOF audit & final refit, `RuntimeError` integrity guards (survive `python -O`), `2014J` calibration/threshold isolation, `max_f1` fallback, `AUD-B5-01` cost-ratio disclaimer, `min(20, len)` FP/FN, Fairness `low_sample_warning`.
-- `tests/test_cli.py` (16 tests): `predict --sample` SHAP contract, missing-column rejection, extra-column handling, SHA-256 artifact-fingerprint ECE verification (exact match, cross-model rejection, threshold/order change rejection, missing/malformed fingerprint rejection), missing-bundle clean-workspace error check, safe default `run_all` (`2014J` skipped), conflicting-flag rejection, post-hoc `--include-locked-test` help warning, and isolated Stage 1–2 execution.
+Runs `86` offline tests across `6` test modules (`7` Python files in `tests/`) using synthetic DuckDB fixtures.
 
-## 8. Verified Empirical Results (100% Traceable to `reports/`)
+### Option B — Safe Fresh-Clone Pipeline & CLI Demo (Default Skips `2014J` Evaluation)
 
-### 8.1 Validation (`val_select`, `T=28 Operational`, `n = 3,905`, `pos_rate = 48.43%`) & Locked Test (`2014J`, `n = 9,213`, `pos_rate = 40.79%`)
+1. Download the 7 OULAD CSV files (UCI ID 349, CC BY 4.0) into `data/raw/`.
+2. Build DuckDB, 6 feature Parquets, validation models, and `artifacts/champion_locked.joblib` **without running Stage 5 (`2014J` evaluation)**:
+   ```bash
+   python -m oulad.run_all --skip-download --skip-locked-test
+   ```
+3. Run the CLI inference demo on **two synthetic illustrative Day-28 student profiles** *(not real students and never read from `2014J`)*:
+   ```bash
+   python -m oulad.predict --sample
+   ```
 
-| Model | `val_select` PR-AUC / ROC-AUC / Brier | OOF Calib Choice (`tau*`) | Locked `2014J` PR-AUC | Locked `2014J` ROC-AUC | Locked `2014J` Raw → Final Brier (`Δ`) | Locked `2014J` Raw → Final ECE (`Δ`) | Locked `2014J` Prec / Rec / F1 |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **LightGBM *(Champion)*** | **`0.7871` / `0.7842` / `0.1880`** | `uncalibrated` (`0.4279`) | **`0.6813`** | **`0.7467`** | `0.2040 → 0.2040` (`0.0000`) | `0.0542 → 0.0542` (`0.0000`) | `0.6023 / 0.6852 / 0.6411` |
-| **TabularMLP (PyTorch, CPU)** | `0.7695` / `0.7689` / `0.1955` | `sigmoid` (`0.4156`) | `0.6376` | `0.7221` | `0.2128 → 0.2186` (`+0.0058`) | `0.0532 → 0.0713` (`+0.0181`) | `0.6022 / 0.6408 / 0.6209` |
-| **LogisticRegression** | `0.7815` / `0.7791` / `0.1911` | `sigmoid` (`0.4398`) | `0.6184` | `0.7239` | `0.2180 → 0.2187` (`+0.0007`) | `0.0814 → 0.0812` (`-0.0002`) | `0.6132 / 0.6437 / 0.6281` |
-
-*Source:* [reports/metrics_val.json](reports/metrics_val.json) & [reports/metrics_test_locked.json](reports/metrics_test_locked.json).
-- **Calibration Note (`AUD-B5-02` & `FA-07`):** Brier Score combines discrimination, calibration, and uncertainty — lower Brier does **not** automatically imply better calibration. LightGBM was kept `uncalibrated` strictly by the pre-specified OOF Brier selection rule on `val_calib` (`0.17912` raw vs `0.18011` sigmoid vs `0.18064` isotonic). Under the `-7.64 pp` seasonal prior shift (`2014B` `48.43%` → `2014J` `40.79%`), LightGBM's locked `2014J` ECE is `0.0542` (not perfectly calibrated), and `sigmoid` calibrators fitted on `2014B` slightly degraded Brier on `2014J`.
-
-### 8.2 Cutoff Horizon Comparison on Locked Test `2014J` ([reports/cutoff_comparison_test.csv](reports/cutoff_comparison_test.csv))
-
-| Cohort Mode | Cutoff (`T`) | `n_test` | LogReg PR-AUC / ROC-AUC | LightGBM PR-AUC / ROC-AUC / Brier |
-| :--- | :---: | :---: | :---: | :---: |
-| Operational | Day 14 | `9,332` | `0.6137` / `0.7049` | `0.6312` / `0.7053` / `0.2127` |
-| Operational | Day 21 | `9,291` | `0.6110` / `0.7120` | `0.6526` / `0.7205` / `0.2148` |
-| Operational *(Primary)* | Day 28 | `9,213` | `0.6184` / `0.7239` | **`0.6813` / `0.7467` / `0.2040`** |
-| Safe Common | Day 14 | `9,192` | `0.6070` / `0.7050` | `0.6239` / `0.7058` / `0.2109` |
-| Safe Common | Day 21 | `9,192` | `0.6009` / `0.7103` | `0.6501` / `0.7227` / `0.2125` |
-| Safe Common | Day 28 | `9,192` | `0.6190` / `0.7239` | `0.6798` / `0.7491` / `0.2028` |
-
-### 8.3 Returning vs New, Sensitivity Checks & Illustrative Cost–Benefit (`2014J`, LightGBM)
-
-- **Returning vs New (`2014J`):** Returning (`n = 782`, `8.49%`, `pos_rate = 57.93%`): `PR-AUC = 0.7987`, `ROC-AUC = 0.7442`, `Brier = 0.2037`; New (`n = 8,431`, `91.51%`, `pos_rate = 39.20%`): `PR-AUC = 0.6640`, `ROC-AUC = 0.7428`, `Brier = 0.2040`.
-- **Sensitive-Demographic Ablation** *(drop `gender`, `disability`, `imd_band`)*: `PR-AUC = 0.6799 (-0.0014)`, `ROC-AUC = 0.7466 (-0.0001)` — does **not** certify fairness due to proxy features (`AUD-B5-03`).
-- **Score-Free Sensitivity Check (`FA-03`, `AUD-B5-04`)** *(drop `mean_score`, `has_score`)*: `PR-AUC = 0.7008 (+0.0195)`, `ROC-AUC = 0.7525 (+0.0058)`, `Brier = 0.1948` on `2014J`. Recorded strictly as an **exploratory post-unlock finding**; Full LightGBM remains the locked champion (`FA-02`).
-- **Illustrative Cost–Benefit (`AUD-B5-01`):** Under illustrative assumptions only (not real institutional costs), at `FP:FN = 1:5`, locked `tau* = 0.4279` yields `FP=1,700, FN=1,183` (cost `7,615` / `0.8265` per student) vs fixed cost-ratio cutoff `0.1667` (`FP=4,216, FN=180`, cost `5,116` / `0.5553`). At `1:10`, locked `tau*` yields cost `13,530` (`1.4686`) vs fixed cutoff `0.0909` (`FP=5,247, FN=12`, cost `5,367` / `0.5825`). Because the champion outputs raw uncalibrated scores, `C_FP/(C_FP+C_FN)` is **not** claimed to be Bayes-optimal.
-
-### 8.4 Diagnostic Figures
-
-| Global Predictive Attribution (Non-Causal SHAP, `val_select`) | Reliability Diagram (`val_calib OOF` vs Locked `2014J`) |
-| :---: | :---: |
-| ![SHAP Summary](reports/figures/shap_summary.png) | ![Calibration Curve](reports/figures/calibration_curve.png) |
-
-*(PyTorch `TabularMLP` training/validation learning curve: [reports/figures/learning_curve.png](reports/figures/learning_curve.png). Full subgroup performance audit: [reports/fairness_test.csv](reports/fairness_test.csv) and [MODEL_CARD.md](MODEL_CARD.md).)*
-
-## 9. Limitations & Caveats
-
-1. **Seasonal Prior Shift (`FA-07`):** Calibration and operating threshold selected on February cohort `2014B` (`48.43%` at-risk) shifted on October cohort `2014J` (`40.79%` at-risk), dropping Precision from `0.7011` (`val_calib OOF`) to `0.6023` (`2014J`) with `ECE = 0.0542`.
-2. **Missing `date_graded` in OULAD (`FA-03`):** OULAD records `date_submitted` and `score`, not grading release timestamps; `mean_score` also exhibited cross-season instability on `2014J`.
-3. **Subgroup Performance Disparities (`AUD-B5-03`):** Observational audit across 18 subgroups (`reports/fairness_test.csv`) shows notable Recall/FPR gaps (e.g., `gender F` Recall `0.6161` vs `M` `0.7306`; `imd_band 0-10%` FPR `0.4351` vs `90-100%` `0.2244`). This audit is **not** a fairness certification.
-4. **Irreducible Post-Day-28 Shocks:** Post-lock error analysis (`20` FP, `20` FN sampled via `min(20, len)`) confirms high-performing Day-28 students (`mean_score = 90–100`) still drop out due to mid/late-term life shocks invisible at Day 28.
-5. **Non-Causal Explanations & CPU Execution:** SHAP reflects predictive reliance, not causal intervention effect; `TabularMLP` was executed on CPU fallback (`device_used = "cpu"`, no GPU training claimed).
-
-## 10. Future Improvements
-
-- Validate **Score-Free vs Full feature sets** and **season-matched recalibration** (`B→B`, `J→J`) on a **fresh, unused holdout cohort** (never re-tuning on `2014J`).
-- Add **bootstrap 95% confidence intervals** for locked metrics and subgroup Recall/FPR gaps, plus **PSI drift monitoring** across incoming terms.
-- Explore sequence models (`WeeklyClickGRU`) over daily/weekly VLE trajectories on a separate experimental branch after Release Candidate freeze.
-
-## 11. Repository Structure
-
+**Verified sample output (synthetic illustrative profiles):**
 ```text
-oulad-early-warning/
-├── .github/workflows/ci.yml                # GitHub Actions CI (ruff + pytest on requirements-cpu.lock)
-├── .gitignore                              # Excludes data/, *.duckdb, artifacts/, mlflow.db, .venv/, .env
-├── pyproject.toml                          # src/ package layout, pytest pythonpath, ruff lint config
-├── requirements-cpu.in                     # Direct CPU dependencies for Linux x86_64 Python 3.11 CI
-├── requirements-cpu.lock                   # Locked Linux x86_64 Python 3.11 CPU deps (0 CUDA, 0 @ file://)
-├── requirements-local.lock                 # Windows workstation provenance snapshot (non-portable)
-├── README.md                               # Project documentation & verified empirical summary
-├── MODEL_CARD.md                           # Intended/prohibited use, calibration, fairness & risk audit
-├── notebooks/
-│   ├── 01_duckdb_quality_and_overlap.ipynb
-│   ├── 02_features_leakage_and_cutoffs.ipynb
-│   ├── 03_modeling_and_shap.ipynb
-│   ├── 04_tabular_mlp_and_ci.ipynb
-│   └── 05_calibration_locked_test_and_fairness.ipynb
-├── reports/
-│   ├── data_quality.json                   # 9 SQL data quality checks & Returning/New overlap
-│   ├── cohort_summary.json                 # Row/feature counts across 6 cutoff Parquets
-│   ├── cutoff_comparison_val.csv           # 12 models (14/21/28 x Op/Common) on val_select
-│   ├── cutoff_comparison_test.csv          # Frozen historical 2014J report for 12 locked models (2c8bab8)
-│   ├── metrics_val.json                    # 3 models + SHAP + sensitivity checks on val_select
-│   ├── metrics_test_locked.json            # Frozen historical 2014J evaluation report (unchanged since 2c8bab8)
-│   ├── fairness_test.csv                   # 18-subgroup performance audit on 2014J
-│   └── figures/
-│       ├── shap_summary.png
-│       ├── learning_curve.png
-│       └── calibration_curve.png
-├── src/oulad/
-│   ├── __init__.py
-│   ├── config.py                           # Paths, constants, seed=42, split & cutoff contracts
-│   ├── db.py                               # DuckDB ingestion, 9 SQL checks, Returning/New overlap
-│   ├── features.py                         # Start-of-Day cohorts & leakage-free SQL features
-│   ├── split.py                            # Presentation-Based Forward Split & invariant checks
-│   ├── baselines.py                        # Logistic Regression, LightGBM, SHAP & sensitivity
-│   ├── torch_models.py                     # TabularPreprocessor (Unknown=0), OULADDataset, TabularMLP
-│   ├── train_torch.py                      # Auto CPU/GPU training, checkpointing & learning curve
-│   ├── evaluate.py                         # 5-fold OOF calibration, threshold lock, 2014J & fairness
-│   ├── run_all.py                          # Safe-by-default reproducible pipeline CLI
-│   └── predict.py                          # Locked-champion sample inference CLI with Top-5 SHAP
-└── tests/
-    ├── conftest.py                         # Offline synthetic DuckDB & feature table fixtures
-    ├── test_quality.py                     # 9 SQL checks, nullstr='?' & Returning/New tests
-    ├── test_leakage.py                     # Parameterized [14,21,28] x {Op,Common} leakage proofs
-    ├── test_split_and_baselines.py         # Split invariants, LightGBM bagging & 2014J isolation
-    ├── test_models.py                      # TabularMLP Unknown=0, logits, grad step & checkpoint
-    ├── test_metrics.py                     # OOF calibration, RuntimeError (-O), fallback & fairness
-    └── test_cli.py                         # run_all safety, predict schema validation & SHAP demo
+Champion Model    : lightgbm (T=28 operational)
+Calibration Method: uncalibrated | Locked Threshold tau*: 0.4279
+
+[demo_high_risk] risk_score=0.9571 (raw_uncalibrated_model_score) vs tau*=0.4279 -> AT_RISK_ALERT
+  Top 5 SHAP predictive drivers (non-causal):
+    1. submission_rate_due = 0.0 (+1.5677 log-odds, increases_risk)
+    2. mean_score = None (+0.2924 log-odds, increases_risk)
+    3. highest_education = Lower Than A Level (+0.2765 log-odds, increases_risk)
+    4. code_module = DDD (+0.1657 log-odds, increases_risk)
+    5. imd_band = 10-20 (+0.1526 log-odds, increases_risk)
+
+[demo_low_risk] risk_score=0.1144 (raw_uncalibrated_model_score) vs tau*=0.4279 -> NO_ALERT
+  Top 5 SHAP predictive drivers (non-causal):
+    1. mean_score = 84.0 (-0.3389 log-odds, decreases_risk)
+    2. code_module = BBB (-0.2878 log-odds, decreases_risk)
+    3. highest_education = HE Qualification (-0.2251 log-odds, decreases_risk)
+    4. submission_rate_due = 1.0 (-0.1828 log-odds, decreases_risk)
+    5. mean_days_late = -2.0 (-0.1750 log-odds, decreases_risk)
 ```
+
+For environment notes (`requirements-cpu.lock` vs `requirements-local.lock`), exact `2014J` data-access boundaries, and opt-in post-hoc historical reproduction (`--include-locked-test`), see [docs/REPRODUCIBILITY.md](docs/REPRODUCIBILITY.md).
 
 ---
 
-See [MODEL_CARD.md](MODEL_CARD.md) for full intended/prohibited use, ethical risks, and detailed audit disclosures.
+## 6. Notebooks & Project Structure
+
+### Executed Notebooks (Saved Outputs & Figures)
+
+| Notebook | Purpose & Saved Evidence |
+| :--- | :--- |
+| [01_duckdb_quality_and_overlap.ipynb](notebooks/01_duckdb_quality_and_overlap.ipynb) | DuckDB load (`32.6k` / `10.66M`), 9 SQL quality checks, Returning vs. New overlap |
+| [02_features_leakage_and_cutoffs.ipynb](notebooks/02_features_leakage_and_cutoffs.ipynb) | Export of 6 Parquets (`14/21/28` × `Op/Common`) + direct real-data anti-leakage checks |
+| [03_modeling_and_shap.ipynb](notebooks/03_modeling_and_shap.ipynb) | Forward split, LogReg & LightGBM baselines, 12 cutoffs, sensitivity checks, embedded SHAP plot |
+| [04_tabular_mlp_and_ci.ipynb](notebooks/04_tabular_mlp_and_ci.ipynb) | PyTorch `TabularMLP` training summary, 3-model `val_select` table, embedded learning curve |
+| [05_calibration_locked_test_and_fairness.ipynb](notebooks/05_calibration_locked_test_and_fairness.ipynb) | Read-only audit of frozen `2014J` report: OOF calibration, metrics, cutoffs, fairness & reliability curve |
+
+### Repository Tree
+
+```text
+oulad-early-warning/
+├── .github/workflows/ci.yml        # GitHub Actions CI (Linux CPU lockfile, ruff + pytest)
+├── README.md                       # Project overview, headline results & quick start
+├── MODEL_CARD.md                   # Intended/prohibited use, fairness audit & ethical risks
+├── docs/                           # Deep-dive methodology & reproducibility documentation
+│   ├── METHODOLOGY_AND_EVALUATION.md
+│   └── REPRODUCIBILITY.md
+├── notebooks/                      # 5 executed Jupyter notebooks (01..05)
+├── reports/                        # Verified JSON/CSV outputs & 3 diagnostic PNG figures
+├── src/oulad/                      # Installable Python package (11 modules: DB → FE → ML/DL → Eval → CLI)
+├── tests/                          # Offline synthetic-DB test suite (conftest.py + 6 modules, 86 tests)
+├── pyproject.toml                  # src/ package layout, pytest pythonpath & ruff config
+├── requirements-cpu.{in,lock}      # Linux x86_64 Python 3.11 CPU dependencies (CI target)
+└── requirements-local.lock         # Windows workstation provenance snapshot (non-portable)
+```
+
+*(Gitignored runtime directories: `data/`, `artifacts/`, `mlflow.db`, `.venv/`.)*
+
+---
+
+## 7. Limitations & Future Work
+
+- **Limitations:**
+  1. *Seasonal prior shift:* Calibrators and thresholds tuned on February `2014B` shift under October `2014J` priors (`ECE = 0.0542`, Precision `0.7011 → 0.6023`).
+  2. *Missing `date_graded`:* OULAD records submission timestamps and scores but not grading release times; real-world deployments must verify LMS grade-release availability before Day 28.
+  3. *Subgroup disparities:* Observational audit ([reports/fairness_test.csv](reports/fairness_test.csv)) reveals meaningful Recall/FPR gaps (e.g., `gender F` Recall `0.6161` vs `M` `0.7306`; `imd_band 0-10%` FPR `0.4351` vs `90-100%` `0.2244`). This is an audit, not a fairness certification.
+  4. *Post-Day-28 life shocks & non-causal SHAP:* High-performing Day-28 learners (`mean_score = 90–100`) still withdraw due to later-term events invisible at Day 28; SHAP reflects predictive reliance, not causal intervention effect.
+- **Proposed Future Improvements *(not yet implemented)*:**
+  - Validate score-free vs. full features and season-matched recalibration (`B→B`, `J→J`) on a fresh, unused holdout cohort.
+  - Add bootstrap 95% confidence intervals for locked and subgroup metrics plus PSI drift monitoring across terms.
+  - Evaluate sequence models (e.g., weekly click GRU) on a separate experimental branch.
+
+---
+
+## 8. Documentation & References
+
+- **Project Documentation:** [MODEL_CARD.md](MODEL_CARD.md) · [docs/METHODOLOGY_AND_EVALUATION.md](docs/METHODOLOGY_AND_EVALUATION.md) · [docs/REPRODUCIBILITY.md](docs/REPRODUCIBILITY.md)
+- **Dataset Reference:** Kuzilek, J., Hlosta, M., & Zdrahal, Z. (2017). *Open University Learning Analytics dataset*. Scientific Data, 4:170171. [UCI ML Repository ID 349](https://archive.ics.uci.edu/dataset/349/open+university+learning+analytics+dataset) — licensed under **CC BY 4.0**.
+- **Licensing Note:** OULAD raw data is governed by **CC BY 4.0** (not redistributed in this repository). Source code licensing for this repository has not yet been finalized in a standalone `LICENSE` file.
