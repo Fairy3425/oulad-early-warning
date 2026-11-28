@@ -25,7 +25,7 @@ pip install --index-url https://pypi.org/simple --extra-index-url https://downlo
 pip install --no-deps --no-build-isolation -e .
 ```
 
-*(Verified automatically in [OULAD GitHub Actions CI](https://github.com/Fairy3425/oulad-early-warning/actions/workflows/ci.yml), e.g., passing run `#45787412942` on `1d7fe6f` and `#45781213279` on `cfd9e6b`.)*
+*(Verified automatically in [OULAD GitHub Actions CI](https://github.com/Fairy3425/oulad-early-warning/actions/workflows/ci.yml) on every push to `main`; see the live CI badge in [README.md](../README.md).)*
 
 ---
 
@@ -65,7 +65,7 @@ python -m oulad.predict --sample
 
 > **Scientific Integrity Warning:**
 > - **Default execution skips `2014J` evaluation** (`include_locked_test = False`). Passing both `--skip-locked-test` and `--include-locked-test` raises a `ValueError`.
-> - Passing `--include-locked-test` runs a **post-hoc historical reproduction** of the `2014J` evaluation originally committed in `2c8bab8` (unchanged in subsequent Git history; repo records alone do not independently certify the exact number of local runs prior to `2c8bab8`).
+> - Passing `--include-locked-test` runs a **post-hoc historical reproduction** of the `2014J` evaluation originally committed in `0dc75f2` (unchanged in subsequent Git history; repo records alone do not independently certify the exact number of local runs prior to `0dc75f2`).
 > - **This is NOT a new blind test.** Its output must **never** be used to select, compare, or tune models, features, calibrators, or thresholds while claiming `2014J` as an independent holdout.
 
 To reproduce historical `2014J` outputs into an isolated folder without modifying committed [reports/](../reports):
@@ -107,8 +107,8 @@ pytest -q
 | [reports/cohort_summary.json](../reports/cohort_summary.json) | Yes | Row counts, feature counts, positive rates across all 6 cutoff Parquets |
 | [reports/cutoff_comparison_val.csv](../reports/cutoff_comparison_val.csv) | Yes | 12 validation models (`14/21/28` × `Operational/Common`) on `val_select` |
 | [reports/metrics_val.json](../reports/metrics_val.json) | Yes | 3 primary models, Returning/New, SHAP top 10, sensitivity checks on `val_select` |
-| [reports/metrics_test_locked.json](../reports/metrics_test_locked.json) | Yes | Frozen historical `2014J` evaluation report (unchanged since `2c8bab8`) |
-| [reports/cutoff_comparison_test.csv](../reports/cutoff_comparison_test.csv) | Yes | Frozen historical `2014J` cutoff comparison for 12 models (since `2c8bab8`) |
-| [reports/fairness_test.csv](../reports/fairness_test.csv) | Yes | Frozen historical `2014J` 18-subgroup performance audit (since `2c8bab8`) |
+| [reports/metrics_test_locked.json](../reports/metrics_test_locked.json) | Yes | Frozen historical `2014J` evaluation report (unchanged since `0dc75f2`) |
+| [reports/cutoff_comparison_test.csv](../reports/cutoff_comparison_test.csv) | Yes | Frozen historical `2014J` cutoff comparison for 12 models (since `0dc75f2`) |
+| [reports/fairness_test.csv](../reports/fairness_test.csv) | Yes | Frozen historical `2014J` 18-subgroup performance audit (since `0dc75f2`) |
 | `reports/figures/*.png` | Yes | `shap_summary.png`, `learning_curve.png`, `calibration_curve.png` |
 | `data/`, `artifacts/`, `mlflow.db` | No (gitignored) | Raw OULAD CSVs, DuckDB DB, Parquets, model bundles, local MLflow SQLite DB |

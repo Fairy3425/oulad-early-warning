@@ -29,7 +29,7 @@ An end-to-end, reproducible tabular ML and PyTorch pipeline on the **Open Univer
 
 ## 1. Project Overview
 
-- **Problem:** Online university courses experience high attrition (`40.79%–48.43%` at-risk rate across OULAD terms). Discovering risk at course completion is too late for intervention, yet building early-warning models is notoriously prone to silent temporal leakage (late registrations, future withdrawals, upcoming due dates, or random splits).
+- **Problem:** Online university courses experience high attrition (`44.14%` overall at-risk rate in the Day-28 Operational cohort; `48.43%` in `2014B` and `40.79%` in `2014J`). Discovering risk at course completion is too late for intervention, yet building early-warning models is notoriously prone to silent temporal leakage (late registrations, future withdrawals, upcoming due dates, or random splits).
 - **Objective:** Given a student enrollment `(code_module, code_presentation, id_student)` and only records strictly available **before Day $T$** ($T \in \{14, 21, 28\}$, primary horizon **$T = 28$**), predict binary risk (`Fail` or `Withdrawn` → `1` vs `Pass` or `Distinction` → `0`) to support **voluntary, non-punitive academic outreach** (never automated penalties).
 
 ---
@@ -81,7 +81,7 @@ Full SQL rules, 12-cutoff benchmarks, sensitivity checks, and illustrative cost�
 
 > **Evaluation Context & Provenance Note:**
 > - **Validation results (`val_select` & `val_calib`)** come from [reports/metrics_val.json](reports/metrics_val.json) and [reports/metrics_test_locked.json](reports/metrics_test_locked.json) (`val_calib` `48.43%` positive rate).
-> - **Frozen Historical `2014J` results** (`40.79%` positive rate) come from [reports/metrics_test_locked.json](reports/metrics_test_locked.json), originally committed in `2c8bab8` and unchanged across subsequent Git history. `2014J` was excluded from training, model selection, calibration, and thresholding; however, repository history alone does not independently certify the exact number of local runs before `2c8bab8`, so `2014J` is reported transparently as a **frozen historical evaluation** rather than a freshly verified blind test.
+> - **Frozen Historical `2014J` results** (`40.79%` positive rate) come from [reports/metrics_test_locked.json](reports/metrics_test_locked.json), originally committed in `0dc75f2` and unchanged across subsequent Git history. `2014J` was excluded from training, model selection, calibration, and thresholding; however, repository history alone does not independently certify the exact number of local runs before `0dc75f2`, so `2014J` is reported transparently as a **frozen historical evaluation** rather than a freshly verified blind test.
 > - **Post-hoc reproduction** via `--include-locked-test` is disabled by default and is strictly a historical reproduction (see [docs/REPRODUCIBILITY.md](docs/REPRODUCIBILITY.md)).
 
 ### Diagnostic Figures

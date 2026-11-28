@@ -69,7 +69,7 @@ To simulate forward deployment across academic terms (`seed = 42`, `T = 28 Opera
 | **Frozen Historical Test (`2014J`)** | `2014J` | `9,213` | `40.79%` | Held out from training, selection, calibration, and thresholding |
 
 - **Calendar Overlap Disclosure:** `2013J` (Oct 2013–Jun 2014) overlaps ~4 calendar months with `2014B` (Feb 2014–Oct 2014), so this split is accurately termed a **Presentation-Based Forward Split** rather than strictly chronological. Between `Train (2013B + 2013J)` and `Test (2014J, Oct 2014)` there is zero calendar overlap.
-- **Historical `2014J` Provenance:** The committed `2014J` evaluation artifacts ([reports/metrics_test_locked.json](../reports/metrics_test_locked.json), [reports/cutoff_comparison_test.csv](../reports/cutoff_comparison_test.csv), [reports/fairness_test.csv](../reports/fairness_test.csv)) were created in commit `2c8bab8` and have remained unchanged across subsequent Git history. Repository records alone do not independently establish the exact number of local evaluation executions prior to `2c8bab8`.
+- **Historical `2014J` Provenance:** The committed `2014J` evaluation artifacts ([reports/metrics_test_locked.json](../reports/metrics_test_locked.json), [reports/cutoff_comparison_test.csv](../reports/cutoff_comparison_test.csv), [reports/fairness_test.csv](../reports/fairness_test.csv)) were created in commit `0dc75f2` and have remained unchanged across subsequent Git history. Repository records alone do not independently establish the exact number of local evaluation executions prior to `0dc75f2`.
 
 ---
 
@@ -111,7 +111,7 @@ To avoid in-sample optimism when calibrating and thresholding on `val_calib` (`n
 | Safe Common | Day 21 | `3,901` | `0.7539` / `0.7603` | `0.7394` / `0.7542` / `0.2014` |
 | Safe Common | Day 28 | `3,901` | `0.7873` / `0.7878` | `0.7925` / `0.7937` / `0.1844` |
 
-**Frozen Historical `2014J` Evaluation** *(committed in `2c8bab8`, unchanged thereafter; not re-executed)* — Source: [reports/cutoff_comparison_test.csv](../reports/cutoff_comparison_test.csv)
+**Frozen Historical `2014J` Evaluation** *(committed in `0dc75f2`, unchanged thereafter; not re-executed)* — Source: [reports/cutoff_comparison_test.csv](../reports/cutoff_comparison_test.csv)
 
 | Cohort Mode | Cutoff (`T`) | `n_test_2014j` | LogReg PR-AUC / ROC-AUC | LightGBM PR-AUC / ROC-AUC / Brier |
 | :--- | :---: | :---: | :---: | :---: |

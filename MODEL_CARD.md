@@ -3,7 +3,7 @@
 ## 1. Model Details
 
 - **Model Name:** OULAD Day-28 Student Risk Early Warning — Locked Champion (`LightGBM`)
-- **Version:** `v1.0-rc` *(verified on Linux `x86_64` Python `3.11` CPU GitHub Actions CI; the frozen historical `2014J` evaluation report was committed in `2c8bab8` and has remained unchanged in subsequent Git history. Available repository evidence does not independently establish the exact number of local evaluation executions prior to `2c8bab8`.)*
+- **Version:** `v1.0-rc` *(verified on Linux `x86_64` Python `3.11` CPU GitHub Actions CI; the frozen historical `2014J` evaluation report was committed in `0dc75f2` and has remained unchanged in subsequent Git history. Available repository evidence does not independently establish the exact number of local evaluation executions prior to `0dc75f2`.)*
 - **Model Type:** Binary Gradient Boosted Decision Trees (`lightgbm.LGBMClassifier`, `subsample_freq=1`, deterministic `seed=42`), benchmarked against `LogisticRegression` (median impute + standard scale + one-hot encoding) and a PyTorch `TabularMLP` (entity embeddings with `Unknown/Missing = 0`, LayerNorm, Dropout `0.2`, unweighted `BCEWithLogitsLoss`, trained on CPU).
 - **Prediction Horizon & Cohort:** Start of Day `T = 28` (strictly `< 28` features), Operational Cohort (`date_registration < 28` and still enrolled at Day 28).
 - **Output:** Risk score in `[0, 1]` (`calibration_method = "uncalibrated"` per pre-specified 5-fold OOF Brier selection rule on `val_calib`) and binary alert decision at locked operating threshold `tau* = 0.4279`.
@@ -30,7 +30,7 @@
   - **Train (`2013B + 2013J`):** `n = 11,806` (`T = 28 Operational`).
   - **Validation Select (`60%` stratified `2014B`):** `n = 3,905` (`pos_rate = 48.43%`) — model comparison, LightGBM/MLP early stopping, SHAP summary.
   - **Validation Calibration (`40%` stratified `2014B`):** `n = 2,604` (`pos_rate = 48.43%`) — explicit 5-fold OOF calibration (`StratifiedKFold(5)` + `FrozenEstimator`) and operating threshold `tau*` selection.
-  - **Frozen Historical Test (`2014J`):** `n = 9,213` (`n_pos = 3,758`, `pos_rate = 40.79%`) — excluded from training, model selection, calibration, and threshold selection. The committed `2014J` report (`2c8bab8`) has remained unchanged in subsequent Git history, though repository records alone do not independently certify the exact count of local runs before `2c8bab8`.
+  - **Frozen Historical Test (`2014J`):** `n = 9,213` (`n_pos = 3,758`, `pos_rate = 40.79%`) — excluded from training, model selection, calibration, and threshold selection. The committed `2014J` report (`0dc75f2`) has remained unchanged in subsequent Git history, though repository records alone do not independently certify the exact count of local runs before `0dc75f2`.
 - **Calendar Overlap Disclosure:** `2013J` (Oct 2013–Jun 2014) overlaps ~4 months with `2014B` (Feb–Oct 2014). Evaluation from `2013` Train to `2014J` Test (Oct 2014) has zero calendar overlap.
 - **Data Quality Verification ([reports/data_quality.json](reports/data_quality.json)):** `9/9` automated DuckDB checks returned `0` violations across `32,593` enrollments and `10,655,280` VLE rows (`imd_band` missing rate `3.41% < 5%`, preserved explicitly as `MISSING` in subgroup audits).
 
@@ -70,13 +70,13 @@ Source: [reports/metrics_test_locked.json](reports/metrics_test_locked.json).
 - **Strict Caveat:**
   1. Ratios `1:5` and `1:10` are **illustrative assumptions only**, not real institutional intervention costs.
   2. Because the locked LightGBM champion is **`uncalibrated`**, thresholds `0.1667` and `0.0909` are **NOT claimed to be Bayes-optimal**. The formula `C_FP / (C_FP + C_FN)` carries a Bayes decision-theoretic interpretation **only** when input scores are well-calibrated posterior probabilities under matching deployment priors and verified operational costs.
-  3. *Historical Artifact Note:* The frozen JSON artifact [reports/metrics_test_locked.json](reports/metrics_test_locked.json) (`2c8bab8`) is preserved verbatim without re-running `2014J` and retains the original key name `"bayes_cost_tau"`; current `src/oulad/evaluate.py` labels this field `"cost_ratio_tau"` with the non-Bayes disclaimer above.
+  3. *Historical Artifact Note:* The frozen JSON artifact [reports/metrics_test_locked.json](reports/metrics_test_locked.json) (`0dc75f2`) is preserved verbatim without re-running `2014J` and retains the original key name `"bayes_cost_tau"`; current `src/oulad/evaluate.py` labels this field `"cost_ratio_tau"` with the non-Bayes disclaimer above.
 
 ### 4.4 Returning vs. New & Sensitivity Findings
 
 - **Returning vs. New (`2014J`, LightGBM):** Returning students (`n = 782`, `8.49%`, `pos_rate = 57.93%`) achieved `PR-AUC = 0.7987`, `ROC-AUC = 0.7442`, `Brier = 0.2037`; New students (`n = 8,431`, `91.51%`, `pos_rate = 39.20%`) achieved `PR-AUC = 0.6640`, `ROC-AUC = 0.7428`, `Brier = 0.2040`.
 - **Cutoff Progression ([reports/cutoff_comparison_test.csv](reports/cutoff_comparison_test.csv)):** LightGBM `PR-AUC` rises monotonically across `T = 14 → 21 → 28` on both Operational (`0.6312 → 0.6526 → 0.6813`) and Safe Common (`0.6239 → 0.6501 → 0.6798`).
-- **Score-Free Sensitivity Check (Missing `date_graded`):** Dropping `mean_score` and `has_score` yielded `PR-AUC = 0.7008 (+0.0195)`, `ROC-AUC = 0.7525 (+0.0058)`, and `Brier = 0.1948` on `2014J` (versus `val_select` where dropping scores reduced `PR-AUC` by `-0.0301`). Under strict holdout discipline, Full LightGBM remains the locked champion (zero post-unlock edits since `2c8bab8`). Score-free `PR-AUC = 0.7008` is recorded strictly as an **exploratory finding** and must be validated on a **fresh, unused holdout cohort** before any selection change.
+- **Score-Free Sensitivity Check (Missing `date_graded`):** Dropping `mean_score` and `has_score` yielded `PR-AUC = 0.7008 (+0.0195)`, `ROC-AUC = 0.7525 (+0.0058)`, and `Brier = 0.1948` on `2014J` (versus `val_select` where dropping scores reduced `PR-AUC` by `-0.0301`). Under strict holdout discipline, Full LightGBM remains the locked champion (zero post-unlock edits since `0dc75f2`). Score-free `PR-AUC = 0.7008` is recorded strictly as an **exploratory finding** and must be validated on a **fresh, unused holdout cohort** before any selection change.
 
 ---
 
